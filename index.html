@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mission Control</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <div class="header-left">
+                <h1>🛸 Mission Control</h1>
+                <span class="subtitle">Financial Command Center</span>
+            </div>
+            <div class="header-right">
+                <span class="date-display" id="currentDate"></span>
+            </div>
+        </header>
+
+        <!-- Pay Cycle Banner -->
+        <section class="cycle-banner">
+            <div class="cycle-ring-container">
+                <svg class="cycle-ring" viewBox="0 0 120 120">
+                    <circle cx="60" cy="60" r="52" class="cycle-ring-bg"/>
+                    <circle cx="60" cy="60" r="52" class="cycle-ring-fill" id="cycleRingFill"/>
+                </svg>
+                <div class="cycle-ring-text">
+                    <span class="cycle-day" id="cycleDay">—</span>
+                    <span class="cycle-label">of 28</span>
+                </div>
+            </div>
+            <div class="cycle-info">
+                <div class="cycle-title">Current Cycle</div>
+                <div class="cycle-dates" id="cycleDates">— to —</div>
+                <div class="cycle-countdown" id="cycleCountdown">...</div>
+            </div>
+            <div class="cycle-quick-stats">
+                <div class="cqs-item">
+                    <span class="cqs-label">Earned</span>
+                    <span class="cqs-value green" id="qsIncome">£0</span>
+                </div>
+                <div class="cqs-item">
+                    <span class="cqs-label">Spent</span>
+                    <span class="cqs-value red" id="qsSpent">£0</span>
+                </div>
+                <div class="cqs-item">
+                    <span class="cqs-label">Available</span>
+                    <span class="cqs-value blue" id="qsAvailable">£0</span>
+                </div>
+                <div class="cqs-item">
+                    <span class="cqs-label">Daily Left</span>
+                    <span class="cqs-value purple" id="qsDailyLeft">£0</span>
+                </div>
+                <div class="cqs-item">
+                    <span class="cqs-label">Savings Pot</span>
+                    <span class="cqs-value gold" id="qsSavings">£0</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Insights Row -->
+        <section class="insights-row" id="insightsRow">
+            <div class="insight-card" id="insightVelocity"></div>
+            <div class="insight-card" id="insightStreak"></div>
+            <div class="insight-card" id="insightFunFact"></div>
+        </section>
+
+        <!-- Spending Progress -->
+        <section class="budget-progress-section">
+            <div class="budget-progress-header">
+                <span>Budget: £<span id="budgetTotal">1000</span></span>
+                <span class="budget-progress-pct" id="budgetPctLabel">0% used</span>
+            </div>
+            <div class="budget-progress-bar">
+                <div class="budget-progress-fill" id="budgetProgressFill"></div>
+                <div class="budget-progress-marker" id="budgetDayMarker" title="Where you should be"></div>
+            </div>
+            <div class="budget-progress-labels">
+                <span>Start</span>
+                <span id="budgetProgressNote"></span>
+                <span>End</span>
+            </div>
+        </section>
+
+        <section class="main-grid">
+            <div class="panel transactions-panel">
+                <div class="panel-header">
+                    <h2>📋 Transactions</h2>
+                    <div class="panel-actions">
+                        <button class="btn btn-outline" id="exportBtn" title="Export CSV">📤 Export</button>
+                        <button class="btn btn-danger" id="clearAllBtn">🗑️ Clear</button>
+                        <button class="btn btn-secondary" id="csvUploadBtn">📁 Upload</button>
+                        <button class="btn btn-primary" id="addTransactionBtn">+ Add</button>
+                        <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+                    </div>
+                </div>
+
+                <div class="filters-row">
+                    <select id="filterCategory" class="filter-select">
+                        <option value="all">All Categories</option>
+                    </select>
+                                     <select id="filterType" class="filter-select">
+                        <option value="all">All Types</option>
+                        <option value="income">Income</option>
+                        <option value="expense">Expense</option>
+                        <option value="essential">🛡️ Essential Only</option>
+                        <option value="nonessential">Non-Essential Only</option>
+                    </select>
+
+                    <select id="filterPeriod" class="filter-select">
+                        <option value="cycle_0">This Pay Cycle</option>
+                        <option value="cycle_-1">Last Pay Cycle</option>
+                        <option value="all">All Time</option>
+                    </select>
+                    <input type="text" id="filterSearch" class="filter-input" placeholder="Search...">
+                </div>
+
+                <div class="hidden-summary" id="hiddenSummary" style="display:none">
+                    <span>🔄 <strong id="hiddenCount">0</strong> hidden transactions</span>
+                    <button class="btn-link" id="toggleHidden">Show</button>
+                </div>
+
+                <div class="transaction-list" id="transactionList">
+                    <div class="empty-state">
+                        <span class="empty-icon">🚀</span>
+                        <p>No transactions yet.</p>
+                        <p class="empty-sub">Upload a CSV or add one manually.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-column">
+                <!-- Spending Breakdown -->
+                <div class="panel chart-panel">
+                    <div class="panel-header">
+                        <h2>🍩 Breakdown</h2>
+                        <span class="chart-period-label" id="chartPeriodLabel">This Pay Cycle</span>
+                    </div>
+                    <div class="category-bars" id="categoryBars">
+                        <div class="empty-state-small">Add transactions to see breakdown</div>
+                    </div>
+                </div>
+
+                <!-- Survival Mode -->
+                <div class="panel survival-panel">
+                    <div class="panel-header">
+                        <h2>🧟 Survival Mode</h2>
+                        <span class="chart-period-label">Based on 🛡️ Essential tags</span>
+                    </div>
+                    <div class="survival-stats" id="survivalStats">
+                        <div class="empty-state-small">Tag transactions with the shield to see survival costs</div>
+                    </div>
+                </div>
+
+                <!-- Can I Afford This? -->
+                <div class="panel afford-panel">
+                    <div class="panel-header">
+                        <h2>🤔 Can I Afford This?</h2>
+                    </div>
+                    <div class="afford-calculator">
+                        <div class="afford-context" id="affordContext"></div>
+                        <div class="afford-input-row">
+                            <input type="text" id="affordItem" class="afford-input" placeholder="Item name">
+                            <input type="number" id="affordAmount" class="afford-input amount" placeholder="£">
+                            <button class="btn btn-primary" id="affordCheckBtn">Check</button>
+                        </div>
+                        <div class="afford-result" id="affordResult"></div>
+                    </div>
+                </div>
+
+                <!-- Settings -->
+                <div class="panel settings-panel">
+                    <div class="panel-header">
+                        <h2>⚙️ Settings</h2>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="setting-item">
+                            <label>Total Savings Pot</label>
+                            <div class="setting-input-row">
+                                <span class="currency-prefix">£</span>
+                                <input type="number" id="totalSavings" class="setting-input" placeholder="0.00">
+                                <button class="btn btn-small" id="saveSavingsBtn">Save</button>
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <label>Cycle Budget</label>
+                            <div class="setting-input-row">
+                                <span class="currency-prefix">£</span>
+                                <input type="number" id="monthlyBudget" class="setting-input" value="1000" placeholder="1000">
+                                <button class="btn btn-small" id="saveBudgetBtn">Save</button>
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <label>Bank Balance</label>
+                            <div class="setting-input-row">
+                                <span class="currency-prefix">£</span>
+                                <input type="number" id="currentBalance" class="setting-input" placeholder="0.00">
+                                <button class="btn btn-small" id="saveBalanceBtn">Save</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Add Transaction Modal -->
+    <div class="modal-overlay" id="addModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Add Transaction</h3>
+                <button class="modal-close" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" id="txDesc" class="form-input" placeholder="e.g., Coffee at Pret">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Amount (£)</label>
+                        <input type="number" id="txAmount" class="form-input" step="0.01" placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label>Type</label>
+                        <select id="txType" class="form-input">
+                            <option value="expense">Expense</option>
+                            <option value="income">Income</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select id="txCategory" class="form-input"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Date</label>
+                        <input type="date" id="txDate" class="form-input">
+                    </div>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="txEssential">
+                    <label for="txEssential">This is an Essential / Survival cost 🛡️</label>
+                </div>
+                <button class="btn btn-primary btn-full" id="saveTransactionBtn">💾 Save Transaction</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CSV Mapping Modal -->
+    <div class="modal-overlay" id="csvModal">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h3>📁 Map Your CSV Columns</h3>
+                <button class="modal-close" id="closeCsvModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-hint">Tell me which columns are which. I'll handle the rest.</p>
+                <div class="csv-preview" id="csvPreview"></div>
+                <div class="csv-mapping" id="csvMapping"></div>
+                <button class="btn btn-primary btn-full" id="importCsvBtn">🚀 Import Transactions</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Category Edit Modal -->
+    <div class="modal-overlay" id="catModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Change Category</h3>
+                <button class="modal-close" id="closeCatModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-hint" id="catEditDesc"></p>
+                <div class="category-grid" id="categoryGrid"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+<!-- ===== NEW PANELS - Add these after your existing panels ===== -->
+
+<!-- Spending Heatmap -->
+<div class="panel" id="heatmap-panel">
+    <h2>📅 Spending Heatmap</h2>
+    <div id="heatmap-content">
+        <p style="opacity:0.5; text-align:center;">No spending data yet</p>
+    </div>
+</div>
+
+<!-- Future Projection -->
+<div class="panel" id="projection-panel">
+    <h2>🔮 Future You</h2>
+    <div id="projection-content">
+        <p style="opacity:0.5; text-align:center;">Import transactions to see your projection</p>
+    </div>
+</div>
+
+<!-- Recurring Payments Detector -->
+<div class="panel" id="recurring-panel">
+    <h2>🔁 Subscriptions Detected</h2>
+    <div id="recurring-content">
+        <p style="opacity:0.5; text-align:center;">Import transactions to detect subscriptions</p>
+    </div>
+</div>
+
+</body>
+</html>
