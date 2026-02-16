@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head><title>Icon Generator</title></head>
+<body>
+<canvas id="c192" width="192" height="192"></canvas>
+<canvas id="c512" width="512" height="512"></canvas>
+<script>
+function drawIcon(canvasId, size) {
+    var c = document.getElementById(canvasId);
+    var ctx = c.getContext('2d');
+
+    // Background — rounded rectangle with your purple gradient
+    ctx.fillStyle = '#0a0a1a';
+    ctx.fillRect(0, 0, size, size);
+
+    // Purple gradient circle
+    var gradient = ctx.createRadialGradient(
+        size/2, size/2, size*0.1,   // inner circle
+        size/2, size/2, size*0.45   // outer circle
+    );
+    gradient.addColorStop(0, '#a855f7');  // bright purple center
+    gradient.addColorStop(1, '#4c1d95');  // dark purple edge
+
+    ctx.beginPath();
+    ctx.arc(size/2, size/2, size*0.4, 0, Math.PI * 2);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // Rocket emoji in the center
+    ctx.font = (size * 0.4) + 'px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🛸', size/2, size/2);
+
+    // Download link
+    var link = document.createElement('a');
+    link.download = 'icon-' + size + '.png';
+    link.href = c.toDataURL('image/png');
+    link.textContent = 'Download icon-' + size + '.png';
+    link.style.display = 'block';
+    link.style.margin = '10px';
+    link.style.fontSize = '20px';
+    document.body.appendChild(link);
+}
+
+drawIcon('c192', 192);
+drawIcon('c512', 512);
+</script>
+</body>
+</html>

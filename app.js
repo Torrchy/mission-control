@@ -1,3 +1,17 @@
+// ============================================
+// PWA — Register Service Worker
+// ============================================
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('./service-worker.js')
+            .then(function(registration) {
+                console.log('🛸 Service Worker registered! Scope:', registration.scope);
+            })
+            .catch(function(error) {
+                console.log('🛸 Service Worker registration failed:', error);
+            });
+    });
+}
 // ===== MISSION CONTROL v14.0 (New Features Edition) — app.js =====
 
 var HIDDEN_TAGS = ['🔄 Internal Transfer', '💰 Savings'];
