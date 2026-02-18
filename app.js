@@ -12,7 +12,8 @@ if ('serviceWorker' in navigator) {
             });
     });
 }
-// ===== MISSION CONTROL v14.0 (New Features Edition) — app.js =====
+
+// ===== MISSION CONTROL v15.0 (Direct Debit Edition) — app.js =====
 
 var HIDDEN_TAGS = ['🔄 Internal Transfer', '💰 Savings'];
 var AUTO_ESSENTIALS = ['🏠 Rent', '🏠 Bills', '🛒 Groceries', '🐾 Maya & Dobby', '💊 Health', '🚇 Transport', '📞 Phone'];
@@ -48,15 +49,11 @@ var ALL_CATEGORIES = [
 var state = { transactions: [], budget: 1000, balance: 0, totalSavings: 0, nextId: 1, showHidden: false };
 var editingTxId = null;
 var csvData = null;
-
-// ---------- NEW FEATURE FLAGS ----------
-// These flags prevent things from firing repeatedly
-var hasSpokenThisSession = false;
 var notificationsEnabled = false;
 
 // ---------- INIT ----------
 function init() {
-    console.log("🚀 Mission Control v14.0 launching...");
+    console.log("🚀 Mission Control v15.0 launching...");
     loadState();
     bindEvents();
     try {
@@ -66,14 +63,12 @@ function init() {
         populateFilterCategories();
         renderAll();
 
-        // NEW: Set up desktop notifications
+        // Set up desktop notifications
         setupNotifications();
 
-        // NEW: Check spending every 5 minutes and notify if needed
-        // setInterval runs a function repeatedly on a timer
-        // 300000ms = 5 minutes (1000ms * 60s * 5min)
+        // Check spending every 5 minutes
         setInterval(function() {
-            checkSpendingAndNotify(state);
+            checkSpendingAndNotify();
         }, 300000);
 
         console.log("✅ All systems go.");
@@ -108,102 +103,7 @@ function loadState() {
 }
 
 // ============================================
-// TALKING DASHBOARD - speaks your spending summary on load
-// ============================================
-
-function speakSpendingSummary(state) {
-    // If we've already spoken, or the browser doesn't support speech, bail out
-    if (hasSpokenThisSession || !window.speechSynthesis) return;
-
-    // Don't speak if there are no transactions loaded yet
-    if (!state.transactions || state.transactions.length === 0) return;
-
-    // Mark that we've spoken so we don't repeat ourselves
-    hasSpokenThisSession = true;
-
-    // --- Gather the data we need ---
-
-    // Filter to just expenses (not income), excluding hidden categories
-    var expenses = state.transactions.filter(function(t) {
-        return t.type === 'expense' && !isHidden(t);
-    });
-
-    // Total amount spent
-    var totalSpent = expenses.reduce(function(sum, t) {
-        return sum + Math.abs(parseFloat(t.amount));
-    }, 0);
-
-    // How much budget is left
-    var remaining = state.budget - totalSpent;
-
-    // Use the existing pay cycle function instead of hardcoding
-    var cycle = getPayCycleDates(0);
-    var daysLeft = cycle.daysLeft;
-
-    // Find the category you've spent the most on
-    var categoryTotals = {};
-    expenses.forEach(function(t) {
-        var cat = t.category || 'Uncategorised';
-        if (!categoryTotals[cat]) categoryTotals[cat] = 0;
-        categoryTotals[cat] += Math.abs(parseFloat(t.amount));
-    });
-
-    var topCategory = Object.entries(categoryTotals)
-        .sort(function(a, b) { return b[1] - a[1]; })[0];
-
-    // --- Build the sentence ---
-    var today = new Date();
-    var greeting;
-    var hour = today.getHours();
-    if (hour < 12) greeting = 'Morning';
-    else if (hour < 17) greeting = 'Afternoon';
-    else greeting = 'Evening';
-
-    var summary = greeting + '. ';
-
-    if (daysLeft === 0) {
-        summary += 'Its payday! ';
-    } else {
-        summary += 'You have ' + daysLeft + ' days until payday. ';
-    }
-
-    summary += 'You have spent ' + Math.round(totalSpent) + ' pounds so far this cycle. ';
-
-    if (remaining > 0) {
-        summary += 'You have ' + Math.round(remaining) + ' pounds left to play with. ';
-    } else {
-        summary += 'You are ' + Math.round(Math.abs(remaining)) + ' pounds over budget. Yikes. ';
-    }
-
-    if (topCategory) {
-        // Strip emojis for speech because the voice will try to describe them
-        var cleanName = topCategory[0].replace(/[\u{1F000}-\u{1FFFF}]/gu, '').trim();
-        summary += 'Your biggest spend category is ' + cleanName +
-            ' at ' + Math.round(topCategory[1]) + ' pounds.';
-    }
-
-    // --- Speak it ---
-    // Small delay so the page has time to render first
-    setTimeout(function() {
-        var msg = new SpeechSynthesisUtterance(summary);
-
-        // Get available voices and try to find a British one
-        var voices = speechSynthesis.getVoices();
-        var britishVoice = voices.find(function(v) {
-            return v.lang === 'en-GB';
-        });
-        if (britishVoice) msg.voice = britishVoice;
-
-        msg.rate = 0.95;
-        msg.pitch = 1.05;
-
-        speechSynthesis.speak(msg);
-        console.log('🛸 Mission Control says:', summary);
-    }, 1500);
-}
-
-// ============================================
-// SMART NOTIFICATIONS - warns you when you're overspending
+// SMART NOTIFICATIONS
 // ============================================
 
 function setupNotifications() {
@@ -230,11 +130,10 @@ function checkSpendingAndNotify() {
     if (!notificationsEnabled) return;
     if (!state.transactions || state.transactions.length === 0) return;
 
+    // Use existing cycle function — not a hardcoded date
     var cycle = getPayCycleDates(0);
-    // progress = how far through the 28-day cycle (0 to 1)
     var progress = Math.min(cycle.daysIntoCycle / 28, 1);
 
-    // Calculate total spent this cycle (excluding hidden)
     var totalSpent = state.transactions
         .filter(function(t) { return t.type === 'expense' && !isHidden(t) && isInCycle(t.date, 0); })
         .reduce(function(sum, t) {
@@ -243,7 +142,6 @@ function checkSpendingAndNotify() {
 
     var spentRatio = state.budget > 0 ? totalSpent / state.budget : 0;
 
-    // Overspending warning
     if (spentRatio > progress + 0.15) {
         var percentSpent = Math.round(spentRatio * 100);
         var percentCycle = Math.round(progress * 100);
@@ -261,9 +159,8 @@ function checkSpendingAndNotify() {
         };
     }
 
-    // Positive reinforcement if UNDER budget
     if (spentRatio < progress - 0.1 && progress > 0.25) {
-        var goodNotification = new Notification('🛸 Mission Control', {
+        new Notification('🛸 Mission Control', {
             body: "Nice. You're under budget. " +
                 Math.round((progress - spentRatio) * 100) +
                 "% ahead of schedule. Keep it up.",
@@ -274,7 +171,288 @@ function checkSpendingAndNotify() {
 }
 
 // ============================================
-// SPENDING HEATMAP - which days drain your wallet
+// DIRECT DEBIT TRACKER
+// ============================================
+// Scans all transactions to find payments that occur on the same
+// day of the month with consistent amounts. Groups them, figures out
+// when each one next hits, and shows a timeline within the current
+// pay cycle so you can plan ahead.
+
+function detectDirectDebits(transactions) {
+    var expenses = transactions.filter(function(t) {
+        return t.type === 'expense';
+    });
+
+    // Group by cleaned description
+    var grouped = {};
+    expenses.forEach(function(t) {
+        var key = t.desc.toLowerCase().trim()
+            // Remove common variable parts like dates and reference numbers
+            .replace(/\d{6,}/g, '')   // strip long number sequences (refs)
+            .replace(/\s+/g, ' ')     // collapse whitespace
+            .trim();
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push({
+            date: new Date(t.date),
+            dayOfMonth: new Date(t.date).getDate(),
+            amount: Math.abs(parseFloat(t.amount)),
+            originalDesc: t.desc,
+            category: t.category
+        });
+    });
+
+    var directDebits = [];
+
+    Object.keys(grouped).forEach(function(name) {
+        var entries = grouped[name];
+
+        // Need at least 2 occurrences to identify a pattern
+        if (entries.length < 2) return;
+
+        // Sort oldest first
+        entries.sort(function(a, b) { return a.date - b.date; });
+
+        // Check if amounts are consistent (within £2 tolerance)
+        var avgAmount = entries.reduce(function(sum, e) {
+            return sum + e.amount;
+        }, 0) / entries.length;
+
+        var amountsConsistent = entries.every(function(e) {
+            return Math.abs(e.amount - avgAmount) < 2;
+        });
+
+        if (!amountsConsistent) return;
+
+        // Check if they land on roughly the same day of the month
+        // Get the most common day-of-month
+        var dayCounts = {};
+        entries.forEach(function(e) {
+            // Allow +/- 2 days for weekends/bank holidays
+            // We "bucket" days: if a payment is on the 1st, 2nd, or 3rd
+            // of different months, they probably all target the 1st
+            var bucket = e.dayOfMonth;
+            dayCounts[bucket] = (dayCounts[bucket] || 0) + 1;
+        });
+
+        // Find the most frequent day
+        var mostFrequentDay = 0;
+        var maxCount = 0;
+        Object.keys(dayCounts).forEach(function(day) {
+            if (dayCounts[day] > maxCount) {
+                maxCount = dayCounts[day];
+                mostFrequentDay = parseInt(day);
+            }
+        });
+
+        // Check how many entries are within 3 days of the most common day
+        var nearMostFrequent = entries.filter(function(e) {
+            var diff = Math.abs(e.dayOfMonth - mostFrequentDay);
+            // Handle month boundary (e.g., 30th vs 2nd)
+            if (diff > 15) diff = 30 - diff;
+            return diff <= 3;
+        });
+
+        // If at least 60% of entries fall near the same day, it's a DD
+        var isDirectDebit = (nearMostFrequent.length / entries.length) >= 0.6;
+
+        if (!isDirectDebit) return;
+
+        // Check gap between payments is roughly monthly (25-35 days)
+        var gaps = [];
+        for (var i = 1; i < entries.length; i++) {
+            var daysBetween = (entries[i].date - entries[i - 1].date) / (1000 * 60 * 60 * 24);
+            gaps.push(daysBetween);
+        }
+        var avgGap = gaps.reduce(function(sum, g) { return sum + g; }, 0) / gaps.length;
+
+        // Accept monthly (25-35), fortnightly (12-16), or weekly (5-9)
+        var frequency = null;
+        if (avgGap >= 25 && avgGap <= 35) frequency = 'monthly';
+        else if (avgGap >= 12 && avgGap <= 16) frequency = 'fortnightly';
+        else if (avgGap >= 5 && avgGap <= 9) frequency = 'weekly';
+
+        if (!frequency) return;
+
+        // Calculate when the next payment is due
+        var lastPayment = entries[entries.length - 1];
+        var nextDate = new Date(lastPayment.date);
+
+        if (frequency === 'monthly') {
+            nextDate.setMonth(nextDate.getMonth() + 1);
+            // Handle month-end overflow (e.g., Jan 31 + 1 month = Mar 3)
+            // If the day shifted, go back to the last day of previous month
+            if (nextDate.getDate() !== lastPayment.dayOfMonth) {
+                nextDate.setDate(0); // Goes to last day of previous month
+            }
+        } else if (frequency === 'fortnightly') {
+            nextDate.setDate(nextDate.getDate() + 14);
+        } else {
+            nextDate.setDate(nextDate.getDate() + 7);
+        }
+
+        // If next date is in the past, keep advancing until it's in the future
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
+        var safety = 0; // Prevent infinite loops
+        while (nextDate < today && safety < 100) {
+            if (frequency === 'monthly') {
+                nextDate.setMonth(nextDate.getMonth() + 1);
+            } else if (frequency === 'fortnightly') {
+                nextDate.setDate(nextDate.getDate() + 14);
+            } else {
+                nextDate.setDate(nextDate.getDate() + 7);
+            }
+            safety++;
+        }
+
+        directDebits.push({
+            name: entries[0].originalDesc,
+            category: entries[0].category,
+            amount: avgAmount.toFixed(2),
+            dayOfMonth: mostFrequentDay,
+            frequency: frequency,
+            occurrences: entries.length,
+            lastPaid: lastPayment.date,
+            nextDue: nextDate,
+            annualCost: (avgAmount * (frequency === 'monthly' ? 12 :
+                frequency === 'fortnightly' ? 26 : 52)).toFixed(2)
+        });
+    });
+
+    // Sort by next due date — soonest first
+    directDebits.sort(function(a, b) { return a.nextDue - b.nextDue; });
+
+    return directDebits;
+}
+
+function renderDirectDebits() {
+    var container = document.getElementById('directdebit-content');
+    if (!container) return;
+
+    var debits = detectDirectDebits(state.transactions);
+
+    if (debits.length === 0) {
+        container.innerHTML = '<p style="opacity:0.5; text-align:center;">No recurring payments detected yet.<br><span style="font-size:0.8em;">Need at least 2 months of data to spot patterns.</span></p>';
+        return;
+    }
+
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var cycle = getPayCycleDates(0);
+
+    // Calculate total monthly outgoing for direct debits
+    var monthlyTotal = debits.reduce(function(sum, dd) {
+        if (dd.frequency === 'monthly') return sum + parseFloat(dd.amount);
+        if (dd.frequency === 'fortnightly') return sum + (parseFloat(dd.amount) * 2.17);
+        return sum + (parseFloat(dd.amount) * 4.33);
+    }, 0);
+
+    // Separate into upcoming (this cycle) and all
+    var upcoming = debits.filter(function(dd) {
+        return dd.nextDue >= today && dd.nextDue <= cycle.end;
+    });
+
+    var html = '';
+
+    // Summary header
+    html += '<div style="display:flex; gap:8px; margin-bottom:16px;">';
+    html += '  <div style="flex:1; text-align:center; padding:10px; background:rgba(168,85,247,0.15); border-radius:8px;">';
+    html += '    <div style="font-size:0.7em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px;">Monthly Direct Debits</div>';
+    html += '    <div style="font-size:1.3em; font-weight:bold; margin-top:2px;">~£' + monthlyTotal.toFixed(2) + '</div>';
+    html += '  </div>';
+    html += '  <div style="flex:1; text-align:center; padding:10px; background:rgba(168,85,247,0.15); border-radius:8px;">';
+    html += '    <div style="font-size:0.7em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px;">Coming This Cycle</div>';
+    html += '    <div style="font-size:1.3em; font-weight:bold; margin-top:2px;">' + upcoming.length + ' payment' + (upcoming.length !== 1 ? 's' : '') + '</div>';
+    html += '  </div>';
+    html += '</div>';
+
+    // Upcoming this cycle section
+    if (upcoming.length > 0) {
+        html += '<div style="font-size:0.75em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">⏰ Coming Up This Cycle</div>';
+
+        upcoming.forEach(function(dd) {
+            var daysUntil = Math.ceil((dd.nextDue - today) / (1000 * 60 * 60 * 24));
+            var dateStr = dd.nextDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+            var color = CAT_COLORS[dd.category] || '#64748b';
+
+            // Urgency styling
+            var urgencyColor, urgencyLabel;
+            if (daysUntil === 0) {
+                urgencyColor = '#ef4444';
+                urgencyLabel = 'TODAY';
+            } else if (daysUntil === 1) {
+                urgencyColor = '#f97316';
+                urgencyLabel = 'TOMORROW';
+            } else if (daysUntil <= 3) {
+                urgencyColor = '#f59e0b';
+                urgencyLabel = daysUntil + ' days';
+            } else {
+                urgencyColor = '#22c55e';
+                urgencyLabel = daysUntil + ' days';
+            }
+
+            html += '<div style="display:flex; align-items:center; padding:10px; margin-bottom:6px; background:rgba(255,255,255,0.03); border-radius:8px; border-left:3px solid ' + urgencyColor + ';">';
+
+            // Left: countdown badge
+            html += '  <div style="min-width:60px; text-align:center; margin-right:12px;">';
+            html += '    <div style="font-size:0.65em; color:' + urgencyColor + '; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">' + urgencyLabel + '</div>';
+            html += '    <div style="font-size:0.7em; opacity:0.5;">' + dateStr + '</div>';
+            html += '  </div>';
+
+            // Middle: details
+            html += '  <div style="flex:1; min-width:0;">';
+            html += '    <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(dd.name) + '</div>';
+            html += '    <div style="font-size:0.75em; opacity:0.5;"><span style="color:' + color + ';">' + dd.category + '</span> · ' + dd.frequency + '</div>';
+            html += '  </div>';
+
+            // Right: amount
+            html += '  <div style="font-weight:bold; font-size:1.05em; margin-left:8px;">£' + dd.amount + '</div>';
+            html += '</div>';
+        });
+
+        // Total upcoming this cycle
+        var upcomingTotal = upcoming.reduce(function(sum, dd) {
+            return sum + parseFloat(dd.amount);
+        }, 0);
+        html += '<div style="text-align:right; font-size:0.8em; opacity:0.6; margin-top:4px; margin-bottom:16px;">Total upcoming: <strong>£' + upcomingTotal.toFixed(2) + '</strong></div>';
+    }
+
+    // All direct debits section
+    html += '<div style="font-size:0.75em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">📋 All Detected Direct Debits</div>';
+
+    debits.forEach(function(dd) {
+        var dateStr = dd.nextDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+        var color = CAT_COLORS[dd.category] || '#64748b';
+        var dayLabel = getOrdinal(dd.dayOfMonth);
+
+        html += '<div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.04);">';
+        html += '  <div style="flex:1; min-width:0;">';
+        html += '    <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(dd.name) + '</div>';
+        html += '    <div style="font-size:0.7em; opacity:0.5;">';
+        html += '      <span style="color:' + color + ';">' + dd.category + '</span>';
+        html += '      · ' + dd.frequency + ' · usually the ' + dayLabel;
+        html += '      · ' + dd.occurrences + ' payments tracked';
+        html += '    </div>';
+        html += '  </div>';
+        html += '  <div style="text-align:right; margin-left:8px;">';
+        html += '    <div style="font-weight:bold;">£' + dd.amount + '</div>';
+        html += '    <div style="font-size:0.65em; opacity:0.4;">£' + dd.annualCost + '/yr</div>';
+        html += '  </div>';
+        html += '</div>';
+    });
+
+    container.innerHTML = html;
+}
+
+// Helper: turns 1 into "1st", 2 into "2nd", etc.
+function getOrdinal(n) {
+    var s = ['th', 'st', 'nd', 'rd'];
+    var v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+// ============================================
+// SPENDING HEATMAP
 // ============================================
 
 function getSpendingHeatmap(transactions) {
@@ -289,7 +467,6 @@ function getSpendingHeatmap(transactions) {
         .filter(function(t) { return t.type === 'expense' && !isHidden(t); })
         .forEach(function(t) {
             var date = new Date(t.date);
-            // getDay(): 0=Sunday, 1=Monday... we remap so Monday=0
             var dayIndex = (date.getDay() + 6) % 7;
             var dayName = days[dayIndex];
             heatmap[dayName].total += Math.abs(parseFloat(t.amount));
@@ -319,11 +496,11 @@ function renderHeatmap() {
     var container = document.getElementById('heatmap-content');
     if (!container) return;
 
-    // Use filtered transactions based on current period selection
-    var filterPeriod = document.getElementById('filterPeriod').value;
+    var filterPeriod = document.getElementById('filterPeriod');
+    var period = filterPeriod ? filterPeriod.value : 'cycle_0';
     var txs = state.transactions.slice();
-    if (filterPeriod === 'cycle_0') txs = txs.filter(function(tx) { return isInCycle(tx.date, 0); });
-    else if (filterPeriod === 'cycle_-1') txs = txs.filter(function(tx) { return isInCycle(tx.date, -1); });
+    if (period === 'cycle_0') txs = txs.filter(function(tx) { return isInCycle(tx.date, 0); });
+    else if (period === 'cycle_-1') txs = txs.filter(function(tx) { return isInCycle(tx.date, -1); });
 
     var data = getSpendingHeatmap(txs);
 
@@ -333,7 +510,6 @@ function renderHeatmap() {
         return;
     }
 
-    // Find worst day
     var worstDay = data.reduce(function(worst, current) {
         return parseFloat(current.total) > parseFloat(worst.total) ? current : worst;
     });
@@ -371,7 +547,7 @@ function renderHeatmap() {
 }
 
 // ============================================
-// FUTURE YOU - project your balance forward
+// FUTURE YOU PROJECTION
 // ============================================
 
 function projectBalance(transactions, currentBalance, daysToProject) {
@@ -383,15 +559,11 @@ function projectBalance(transactions, currentBalance, daysToProject) {
 
     if (expenses.length === 0) return null;
 
-    // Find date range
     var dates = expenses.map(function(t) { return new Date(t.date).getTime(); });
     var earliest = new Date(Math.min.apply(null, dates));
     var latest = new Date(Math.max.apply(null, dates));
 
-    var totalDays = Math.max(
-        1,
-        (latest - earliest) / (1000 * 60 * 60 * 24)
-    );
+    var totalDays = Math.max(1, (latest - earliest) / (1000 * 60 * 60 * 24));
 
     var totalSpent = expenses.reduce(function(sum, t) {
         return sum + Math.abs(parseFloat(t.amount));
@@ -406,8 +578,7 @@ function projectBalance(transactions, currentBalance, daysToProject) {
         var date = new Date();
         date.setDate(date.getDate() + i);
 
-        var isBroke = balance <= 0;
-        if (isBroke && !brokeDay) brokeDay = i;
+        if (balance <= 0 && !brokeDay) brokeDay = i;
 
         projection.push({
             date: date.toISOString().split('T')[0],
@@ -423,9 +594,7 @@ function projectBalance(transactions, currentBalance, daysToProject) {
         projection: projection,
         dailyRate: dailyRate.toFixed(2),
         brokeDay: brokeDay,
-        daysUntilBroke: brokeDay
-            ? brokeDay + ' days'
-            : 'You survive! 🎉'
+        daysUntilBroke: brokeDay ? brokeDay + ' days' : 'You survive! 🎉'
     };
 }
 
@@ -433,12 +602,10 @@ function renderProjection() {
     var container = document.getElementById('projection-content');
     if (!container) return;
 
-    // Get current cycle transactions
     var cycleTxs = state.transactions.filter(function(t) {
         return isInCycle(t.date, 0) && !isHidden(t);
     });
 
-    // Calculate remaining budget as "current balance"
     var expenses = cycleTxs.filter(function(t) { return t.type === 'expense'; });
     var totalSpent = expenses.reduce(function(sum, t) {
         return sum + Math.abs(parseFloat(t.amount));
@@ -450,7 +617,6 @@ function renderProjection() {
         return;
     }
 
-    // Project for remaining days in the 28-day cycle
     var cycle = getPayCycleDates(0);
     var daysLeft = Math.max(1, cycle.daysLeft);
 
@@ -462,7 +628,6 @@ function renderProjection() {
 
     var html = '';
 
-    // Summary stats
     html += '<div style="display:flex; justify-content:space-between; margin-bottom:16px; font-size:0.85em;">';
     html += '  <div>🔥 Burn rate: <strong>£' + result.dailyRate + '/day</strong></div>';
     html += '  <div>';
@@ -474,24 +639,17 @@ function renderProjection() {
     html += '  </div>';
     html += '</div>';
 
-    // Bar chart
     html += '<div style="display:flex; flex-direction:column; gap:2px;">';
 
     var maxBalance = parseFloat(result.projection[0].balance);
 
     result.projection.forEach(function(day) {
-        var barWidth = maxBalance > 0
-            ? (parseFloat(day.balance) / maxBalance) * 100
-            : 0;
+        var barWidth = maxBalance > 0 ? (parseFloat(day.balance) / maxBalance) * 100 : 0;
 
         var colour;
-        if (day.danger) {
-            colour = 'rgba(239, 68, 68, 0.8)';
-        } else if (barWidth < 50) {
-            colour = 'rgba(234, 179, 8, 0.7)';
-        } else {
-            colour = 'rgba(168, 85, 247, 0.7)';
-        }
+        if (day.danger) colour = 'rgba(239, 68, 68, 0.8)';
+        else if (barWidth < 50) colour = 'rgba(234, 179, 8, 0.7)';
+        else colour = 'rgba(168, 85, 247, 0.7)';
 
         html += '<div style="display:flex; align-items:center; gap:8px; font-size:0.75em;">';
         html += '  <div style="width:50px; opacity:0.6; text-align:right;">' + day.dayLabel + '</div>';
@@ -503,12 +661,11 @@ function renderProjection() {
     });
 
     html += '</div>';
-
     container.innerHTML = html;
 }
 
 // ============================================
-// SUBSCRIPTION DETECTOR - finds recurring payments
+// SUBSCRIPTION DETECTOR
 // ============================================
 
 function findRecurring(transactions) {
@@ -516,7 +673,6 @@ function findRecurring(transactions) {
         return t.type === 'expense' && !isHidden(t);
     });
 
-    // Group transactions by description
     var grouped = {};
     expenses.forEach(function(t) {
         var key = t.desc.toLowerCase().trim();
@@ -530,17 +686,12 @@ function findRecurring(transactions) {
 
     var recurring = [];
 
-    var keys = Object.keys(grouped);
-    keys.forEach(function(name) {
+    Object.keys(grouped).forEach(function(name) {
         var entries = grouped[name];
-
-        // Need at least 2 occurrences
         if (entries.length < 2) return;
 
-        // Sort chronologically
         entries.sort(function(a, b) { return a.date - b.date; });
 
-        // Calculate gaps between consecutive payments
         var gaps = [];
         for (var i = 1; i < entries.length; i++) {
             var daysBetween = (entries[i].date - entries[i - 1].date) / (1000 * 60 * 60 * 24);
@@ -553,20 +704,14 @@ function findRecurring(transactions) {
             return sum + e.amount;
         }, 0) / entries.length;
 
-        // Check if amounts are consistent (within £2)
         var amountsConsistent = entries.every(function(e) {
             return Math.abs(e.amount - avgAmount) < 2;
         });
 
-        // Determine frequency
         var frequency = null;
-        if (avgGap >= 25 && avgGap <= 35 && amountsConsistent) {
-            frequency = 'monthly';
-        } else if (avgGap >= 12 && avgGap <= 16 && amountsConsistent) {
-            frequency = 'fortnightly';
-        } else if (avgGap >= 5 && avgGap <= 9 && amountsConsistent) {
-            frequency = 'weekly';
-        }
+        if (avgGap >= 25 && avgGap <= 35 && amountsConsistent) frequency = 'monthly';
+        else if (avgGap >= 12 && avgGap <= 16 && amountsConsistent) frequency = 'fortnightly';
+        else if (avgGap >= 5 && avgGap <= 9 && amountsConsistent) frequency = 'weekly';
 
         if (frequency) {
             recurring.push({
@@ -581,7 +726,6 @@ function findRecurring(transactions) {
         }
     });
 
-    // Sort by annual cost descending
     recurring.sort(function(a, b) {
         return parseFloat(b.annualCost) - parseFloat(a.annualCost);
     });
@@ -600,7 +744,6 @@ function renderRecurring() {
         return;
     }
 
-    // Calculate total monthly cost
     var monthlyTotal = subs.reduce(function(sum, s) {
         var monthly;
         if (s.frequency === 'monthly') monthly = parseFloat(s.amount);
@@ -611,13 +754,11 @@ function renderRecurring() {
 
     var html = '';
 
-    // Summary header
     html += '<div style="text-align:center; margin-bottom:12px; padding:8px; background:rgba(168,85,247,0.15); border-radius:8px;">';
     html += '  <div style="font-size:0.8em; opacity:0.7;">Detected Recurring Payments</div>';
     html += '  <div style="font-size:1.4em; font-weight:bold;">~£' + monthlyTotal.toFixed(2) + '/month</div>';
     html += '</div>';
 
-    // List each subscription
     subs.forEach(function(s) {
         var freqEmoji = s.frequency === 'monthly' ? '📅' :
             s.frequency === 'fortnightly' ? '📆' : '🗓️';
@@ -806,7 +947,7 @@ function guessType(amount, description) {
     return 'expense';
 }
 
-// ---------- CSV (DO NOT TOUCH) ----------
+// ---------- CSV ----------
 function parseCSVLine(line) {
     var res = []; var cur = ''; var inQ = false;
     for (var i = 0; i < line.length; i++) {
@@ -828,8 +969,8 @@ function parseDate(raw) {
     }
     var m2 = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
     if (m2) return raw.substring(0, 10);
-    var d = new Date(raw);
-    if (!isNaN(d)) return d.toISOString().slice(0, 10);
+    var dd = new Date(raw);
+    if (!isNaN(dd)) return dd.toISOString().slice(0, 10);
     return null;
 }
 
@@ -911,7 +1052,7 @@ function importCsv() {
     csvData = null;
     alert('🚀 Imported ' + added + ' transactions!\n🔄 ' + hidden + ' hidden.');
 
-    // NEW: Check spending right after import
+    // Check spending right after import
     checkSpendingAndNotify();
 }
 
@@ -927,14 +1068,10 @@ function renderAll() {
         renderAffordContext();
         renderTopSpends();
         renderSurvivalPanel();
-
-        // NEW: Render new panels
         renderHeatmap();
         renderProjection();
         renderRecurring();
-
-        // NEW: Speak summary (only fires once per session)
-        speakSpendingSummary(state);
+        renderDirectDebits();
     } catch (e) { console.error("Render error:", e); }
 }
 
