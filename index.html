@@ -321,6 +321,48 @@
         </div>
     </div>
 
+    <!-- Add Recurring Bill Modal -->
+    <div class="modal-overlay" id="addBillModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Add Recurring Bill</h3>
+                <button class="modal-close" id="closeBillModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-hint">Manually track bills that happen every month</p>
+                <div class="form-group">
+                    <label>Bill Name</label>
+                    <input type="text" id="billName" class="form-input" placeholder="e.g., Sky Digital">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Amount (£)</label>
+                        <input type="number" id="billAmount" class="form-input" step="0.01" placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label>Day of Month</label>
+                        <input type="number" id="billDay" class="form-input" min="1" max="31" placeholder="e.g., 23">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="billCategory" class="form-input">
+                        <option value="🏠 Bills">🏠 Bills</option>
+                        <option value="📱 Subscriptions">📱 Subscriptions</option>
+                        <option value="🐾 Maya & Dobby">🐾 Maya & Dobby</option>
+                        <option value="💊 Therapy">💊 Therapy</option>
+                        <option value="💪 Gym & Fitness">💪 Gym & Fitness</option>
+                        <option value="❤️ Charity">❤️ Charity</option>
+                        <option value="📞 Phone">📞 Phone</option>
+                        <option value="💳 Credit Card Payment">💳 Credit Card Payment</option>
+                        <option value="📦 Other">📦 Other</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary btn-full" id="saveBillBtn">💾 Save Bill</button>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>
