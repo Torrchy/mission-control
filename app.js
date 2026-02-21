@@ -18,6 +18,35 @@ if ('serviceWorker' in navigator) {
 var HIDDEN_TAGS = ['🔄 Internal Transfer', '💰 Savings'];
 var AUTO_ESSENTIALS = ['🏠 Rent', '🏠 Bills', '🛒 Groceries', '🐾 Maya & Dobby', '💊 Health', '🚇 Transport', '📞 Phone'];
 
+// Known recurring bill patterns — enables detection from even a single transaction
+var KNOWN_RECURRING_PATTERNS = [
+    { pattern: /sky\s*(digital|uk)/i, name: 'Sky', category: '📱 Subscriptions' },
+    { pattern: /wescot/i, name: 'Wescot Credit Services', category: '💳 Credit Card Payment' },
+    { pattern: /south\s*east\s*water/i, name: 'South East Water', category: '🏠 Bills' },
+    { pattern: /b\.?g\.?\s*services|british\s*gas\s*services/i, name: 'British Gas Services', category: '🏠 Bills' },
+    { pattern: /british\s*gas\s*trading|b\.?g\.?\s*trading/i, name: 'British Gas Trading', category: '🏠 Bills' },
+    { pattern: /animal\s*friends/i, name: 'Animal Friends', category: '🐾 Maya & Dobby' },
+    { pattern: /\bgll\b|greenwich\s*leisure/i, name: 'Greenwich Leisure', category: '💪 Gym & Fitness' },
+    { pattern: /unwfp|united\s*nations/i, name: 'United Nations (UNWFP)', category: '❤️ Charity' },
+    { pattern: /ovo\s*energy/i, name: 'Ovo Energy', category: '🏠 Bills' },
+    { pattern: /council\s*tax|basingstoke.*dean/i, name: 'Council Tax', category: '🏠 Bills' },
+    { pattern: /trinity\s*estates/i, name: 'Trinity Estates', category: '🏠 Rent' },
+    { pattern: /tv\s*licen[cs]/i, name: 'TV Licence', category: '🏠 Bills' },
+    { pattern: /netflix/i, name: 'Netflix', category: '📱 Subscriptions' },
+    { pattern: /spotify/i, name: 'Spotify', category: '📱 Subscriptions' },
+    { pattern: /disney/i, name: 'Disney+', category: '📱 Subscriptions' },
+    { pattern: /amazon\s*prime/i, name: 'Amazon Prime', category: '📱 Subscriptions' },
+    { pattern: /apple\.com/i, name: 'Apple', category: '📱 Subscriptions' },
+    { pattern: /google\s*(youtube|one|cloud|play)/i, name: 'Google', category: '📱 Subscriptions' },
+    { pattern: /openai/i, name: 'OpenAI', category: '📱 Subscriptions' },
+    { pattern: /anthropic/i, name: 'Anthropic', category: '📱 Subscriptions' },
+    { pattern: /lebara/i, name: 'Lebara', category: '📞 Phone' },
+    { pattern: /tails\.com|tails\s+com/i, name: 'Tails.com', category: '🐾 Maya & Dobby' },
+    { pattern: /experian/i, name: 'Experian', category: '📱 Subscriptions' },
+    { pattern: /emma\s*app/i, name: 'Emma App', category: '📱 Subscriptions' },
+    { pattern: /skin\s*\+?\s*me/i, name: 'Skin + Me', category: '💄 Self Care' },
+];
+
 var CAT_COLORS = {
     '💰 Salary': '#22c55e', '🏠 Rent': '#8b5cf6', '🏠 Bills': '#7c3aed',
     '🏠 Home & Kitchen': '#a78bfa', '🛒 Groceries': '#22c55e',
@@ -212,32 +241,104 @@ function checkSpendingAndNotify() {
 // - Regular intervals (weekly, fortnightly, monthly)
 
 function normalizePayeeName(desc) {
-    // Strip out common noise from merchant names
     return desc.toLowerCase()
-        .replace(/\d{2}\/\d{2}\/\d{4}/g, '')  // Remove dates
-        .replace(/\d{6,}/g, '')                 // Remove reference numbers (6+ digits)
-        .replace(/\b(payment|pymt|pd|paid|to|from|ref|transaction|txn)\b/gi, '') // Remove common words
-        .replace(/[^a-z0-9\s]/g, '')           // Remove special characters
-        .replace(/\s+/g, ' ')                   // Collapse whitespace
+        .replace(/\b(ddr|bgc|sto|fpo|fpi|bbp|cpt)\b/gi, '')  // Remove Barclays payment type codes
+        .replace(/\b(d\/d|s\/o)\b/gi, '')                      // Remove D/D, S/O markers
+        .replace(/\d{2}\/\d{2}\/\d{4}/g, '')                   // Remove dates
+        .replace(/\d{6,}/g, '')                                  // Remove reference numbers
+        .replace(/\b(payment|pymt|pd|paid|to|from|ref|transaction|txn|optional)\b/gi, '')
+        .replace(/[^a-z0-9\s]/g, '')
+        .replace(/\s+/g, ' ')
         .trim()
-        .substring(0, 30);                      // Take first 30 chars for matching
+        .substring(0, 40);
 }
 
-function detectDirectDebits(transactions) {
+// Check if a transaction description looks like a direct debit
+function isDirectDebit(desc) {
+    return /\b(ddr|d\/d|direct\s*debit|standing\s*order|sto)\b/i.test(desc);
+}
+
+// Match a transaction description against known recurring patterns
+function matchKnownPattern(desc) {
+    for (var i = 0; i < KNOWN_RECURRING_PATTERNS.length; i++) {
+        if (KNOWN_RECURRING_PATTERNS[i].pattern.test(desc)) {
+            return KNOWN_RECURRING_PATTERNS[i];
+        }
+    }
+    return null;
+}
+
+// Clean up a raw description into a readable payee name
+function cleanPayeeName(desc) {
+    return desc
+        .replace(/\b(ddr|bgc|sto|fpo|fpi|bbp|cpt)\b/gi, '')
+        .replace(/\b(d\/d|s\/o)\b/gi, '')
+        .replace(/\d{2}\/\d{2}\/\d{4}/g, '')
+        .replace(/\d{6,}/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function detectRecurringPayments(transactions) {
     var expenses = transactions.filter(function(t) {
         return t.type === 'expense';
     });
 
-    // Group by normalized payee name
+    var detected = {};   // key → { name, category, entries[] }
+    var matchedIds = {};  // track which transactions are already matched
+
+    // ---- PASS 1: Match against known recurring patterns ----
+    expenses.forEach(function(t) {
+        var match = matchKnownPattern(t.desc);
+        if (!match) return;
+
+        var key = 'known_' + match.name.toLowerCase();
+        if (!detected[key]) {
+            detected[key] = { name: match.name, category: match.category, entries: [] };
+        }
+        detected[key].entries.push({
+            date: new Date(t.date),
+            dayOfMonth: new Date(t.date).getDate(),
+            amount: Math.abs(parseFloat(t.amount)),
+            originalDesc: t.desc
+        });
+        matchedIds[t.id] = true;
+    });
+
+    // ---- PASS 2: Find DDR transactions not yet matched ----
+    expenses.forEach(function(t) {
+        if (matchedIds[t.id]) return;
+        if (!isDirectDebit(t.desc)) return;
+
+        var cleanName = cleanPayeeName(t.desc);
+        if (cleanName.length < 3) return;
+
+        var key = 'ddr_' + normalizePayeeName(t.desc);
+        if (!detected[key]) {
+            detected[key] = {
+                name: cleanName,
+                category: autoCategory(t.desc),
+                entries: []
+            };
+        }
+        detected[key].entries.push({
+            date: new Date(t.date),
+            dayOfMonth: new Date(t.date).getDate(),
+            amount: Math.abs(parseFloat(t.amount)),
+            originalDesc: t.desc
+        });
+        matchedIds[t.id] = true;
+    });
+
+    // ---- PASS 3: Repeated same-payee, same-amount (non-DDR, 2+ occurrences) ----
     var grouped = {};
     expenses.forEach(function(t) {
-        var normalizedName = normalizePayeeName(t.desc);
-        
-        // Skip if name is too short to be meaningful
-        if (normalizedName.length < 3) return;
-        
-        if (!grouped[normalizedName]) grouped[normalizedName] = [];
-        grouped[normalizedName].push({
+        if (matchedIds[t.id]) return;
+        var norm = normalizePayeeName(t.desc);
+        if (norm.length < 3) return;
+        if (!grouped[norm]) grouped[norm] = [];
+        grouped[norm].push({
+            id: t.id,
             date: new Date(t.date),
             dayOfMonth: new Date(t.date).getDate(),
             amount: Math.abs(parseFloat(t.amount)),
@@ -246,130 +347,92 @@ function detectDirectDebits(transactions) {
         });
     });
 
-    var directDebits = [];
-
-    Object.keys(grouped).forEach(function(normalizedName) {
-        var entries = grouped[normalizedName];
-
-        // Need at least 2 occurrences to spot a pattern
+    Object.keys(grouped).forEach(function(norm) {
+        var entries = grouped[norm];
         if (entries.length < 2) return;
 
-        // Sort oldest first
         entries.sort(function(a, b) { return a.date - b.date; });
 
-        // Calculate average amount
-        var avgAmount = entries.reduce(function(sum, e) {
-            return sum + e.amount;
-        }, 0) / entries.length;
+        var avgAmount = entries.reduce(function(s, e) { return s + e.amount; }, 0) / entries.length;
 
-        // Check if amounts are consistent (within £3 tolerance)
-        var amountsConsistent = entries.every(function(e) {
+        // Check amounts are consistent (within £3)
+        var consistent = entries.every(function(e) {
             return Math.abs(e.amount - avgAmount) < 3;
         });
+        if (!consistent) return;
 
-        if (!amountsConsistent) return;
-
-        // Calculate gaps between consecutive payments
+        // Check intervals suggest a monthly pattern (24-37 day gaps)
         var gaps = [];
         for (var i = 1; i < entries.length; i++) {
-            var daysBetween = (entries[i].date - entries[i - 1].date) / (1000 * 60 * 60 * 24);
-            gaps.push(daysBetween);
+            gaps.push((entries[i].date - entries[i - 1].date) / (1000 * 60 * 60 * 24));
         }
-        
         if (gaps.length === 0) return;
-        
-        var avgGap = gaps.reduce(function(sum, g) { return sum + g; }, 0) / gaps.length;
+        var avgGap = gaps.reduce(function(s, g) { return s + g; }, 0) / gaps.length;
 
-        // Determine frequency based on average gap
         var frequency = null;
-        if (avgGap >= 24 && avgGap <= 37) frequency = 'monthly';       // 28-31 days ±3
-        else if (avgGap >= 12 && avgGap <= 16) frequency = 'fortnightly'; // 14 days ±2
-        else if (avgGap >= 5 && avgGap <= 9) frequency = 'weekly';        // 7 days ±2
-
+        if (avgGap >= 24 && avgGap <= 37) frequency = 'monthly';
+        else if (avgGap >= 12 && avgGap <= 16) frequency = 'fortnightly';
+        else if (avgGap >= 5 && avgGap <= 9) frequency = 'weekly';
         if (!frequency) return;
 
-        // Find the most common day-of-month for monthly payments
-        var mostFrequentDay = 1;
-        if (frequency === 'monthly') {
-            var dayCounts = {};
-            entries.forEach(function(e) {
-                var day = e.dayOfMonth;
-                dayCounts[day] = (dayCounts[day] || 0) + 1;
-            });
-
-            var maxCount = 0;
-            Object.keys(dayCounts).forEach(function(day) {
-                if (dayCounts[day] > maxCount) {
-                    maxCount = dayCounts[day];
-                    mostFrequentDay = parseInt(day);
-                }
-            });
-
-            // Verify that most payments fall within ±3 days of this day
-            var nearTarget = entries.filter(function(e) {
-                var diff = Math.abs(e.dayOfMonth - mostFrequentDay);
-                // Handle month wraparound (e.g., 30th vs 2nd)
-                if (diff > 15) diff = Math.abs(30 - diff);
-                return diff <= 3;
-            });
-
-            // If less than 60% of payments are near the target day, skip it
-            if (nearTarget.length / entries.length < 0.6) return;
-        } else {
-            // For weekly/fortnightly, just use the last payment's day
-            mostFrequentDay = entries[entries.length - 1].dayOfMonth;
-        }
-
-        // Calculate next payment date
-        var lastPayment = entries[entries.length - 1];
-        var nextDate = new Date(lastPayment.date);
-        var today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        // Advance to next occurrence
-        if (frequency === 'monthly') {
-            nextDate.setMonth(nextDate.getMonth() + 1);
-            // Handle month-end dates (e.g., Jan 31 → Feb 28)
-            if (nextDate.getDate() !== lastPayment.dayOfMonth && lastPayment.dayOfMonth > 28) {
-                nextDate.setDate(0); // Last day of previous month
-            }
-        } else if (frequency === 'fortnightly') {
-            nextDate.setDate(nextDate.getDate() + 14);
-        } else {
-            nextDate.setDate(nextDate.getDate() + 7);
-        }
-
-        // If calculated date is in the past, advance until it's in the future
-        var safety = 0;
-        while (nextDate < today && safety < 100) {
-            if (frequency === 'monthly') {
-                nextDate.setMonth(nextDate.getMonth() + 1);
-            } else if (frequency === 'fortnightly') {
-                nextDate.setDate(nextDate.getDate() + 14);
-            } else {
-                nextDate.setDate(nextDate.getDate() + 7);
-            }
-            safety++;
-        }
-
-        directDebits.push({
-            name: entries[0].originalDesc,  // Use the original merchant name
+        var key = 'repeat_' + norm;
+        var cleanName = cleanPayeeName(entries[entries.length - 1].originalDesc);
+        detected[key] = {
+            name: cleanName,
             category: entries[0].category,
+            frequency: frequency,
+            entries: entries
+        };
+    });
+
+    // ---- Build results ----
+    var results = [];
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    Object.keys(detected).forEach(function(key) {
+        var bill = detected[key];
+        var entries = bill.entries;
+        entries.sort(function(a, b) { return a.date - b.date; });
+
+        var avgAmount = entries.reduce(function(s, e) { return s + e.amount; }, 0) / entries.length;
+
+        // Most common day of month
+        var dayCounts = {};
+        entries.forEach(function(e) {
+            dayCounts[e.dayOfMonth] = (dayCounts[e.dayOfMonth] || 0) + 1;
+        });
+        var mostFrequentDay = parseInt(Object.keys(dayCounts).sort(function(a, b) {
+            return dayCounts[b] - dayCounts[a];
+        })[0]);
+
+        // Calculate next due date
+        var nextDate = new Date(today.getFullYear(), today.getMonth(), mostFrequentDay);
+        if (nextDate <= today) {
+            nextDate.setMonth(nextDate.getMonth() + 1);
+        }
+
+        var freq = bill.frequency || 'monthly';
+        var multiplier = freq === 'monthly' ? 12 : freq === 'fortnightly' ? 26 : 52;
+
+        results.push({
+            name: bill.name,
+            category: bill.category,
             amount: avgAmount.toFixed(2),
             dayOfMonth: mostFrequentDay,
-            frequency: frequency,
+            frequency: freq,
             occurrences: entries.length,
-            lastPaid: lastPayment.date,
+            lastPaid: entries[entries.length - 1].date,
             nextDue: nextDate,
-            annualCost: (avgAmount * (frequency === 'monthly' ? 12 :
-                frequency === 'fortnightly' ? 26 : 52)).toFixed(2)
+            annualCost: (avgAmount * multiplier).toFixed(2),
+            isAutoDetected: true
         });
     });
 
-    // Sort by next due date — soonest first
-    directDebits.sort(function(a, b) { return a.nextDue - b.nextDue; });
+    // Sort by day of month (calendar order)
+    results.sort(function(a, b) { return a.dayOfMonth - b.dayOfMonth; });
 
-    return directDebits;
+    return results;
 }
 
 function renderDirectDebits() {
@@ -380,130 +443,138 @@ function renderDirectDebits() {
     today.setHours(0, 0, 0, 0);
     var cycle = getPayCycleDates(0);
 
-    // Calculate when each bill is next due
-    var billsWithDates = state.recurringBills.map(function(bill) {
-        var nextDate = new Date(today);
-        nextDate.setDate(bill.dayOfMonth);
-        
-        // If we've passed that day this month, move to next month
-        if (nextDate < today) {
-            nextDate.setMonth(nextDate.getMonth() + 1);
-        }
-        
-        // Handle month-end dates
-        if (nextDate.getDate() !== bill.dayOfMonth) {
-            nextDate.setDate(0); // Last day of previous month
-        }
-        
+    // Auto-detect recurring payments from transactions
+    var autoDetected = detectRecurringPayments(state.transactions);
+
+    // Build manual bills list
+    var manualBills = (state.recurringBills || []).map(function(bill) {
+        var nextDate = new Date(today.getFullYear(), today.getMonth(), bill.dayOfMonth);
+        if (nextDate <= today) nextDate.setMonth(nextDate.getMonth() + 1);
         return {
             name: bill.name,
             category: bill.category,
             amount: parseFloat(bill.amount),
             dayOfMonth: bill.dayOfMonth,
+            frequency: 'monthly',
             nextDue: nextDate,
+            isManual: true,
             id: bill.id
         };
     });
 
-    // Sort by next due date
-    billsWithDates.sort(function(a, b) { return a.nextDue - b.nextDue; });
+    // Merge: manual bills override auto-detected if names match
+    var manualNames = {};
+    manualBills.forEach(function(b) { manualNames[b.name.toLowerCase()] = true; });
 
-    if (billsWithDates.length === 0) {
-        container.innerHTML = '<p style="opacity:0.5; text-align:center;">No recurring bills added yet.<br><span style="font-size:0.8em;">Click "Add Bill" to manually track your monthly payments.</span></p>' +
+    var allBills = manualBills.slice();
+    autoDetected.forEach(function(ab) {
+        if (!manualNames[ab.name.toLowerCase()]) {
+            allBills.push({
+                name: ab.name,
+                category: ab.category,
+                amount: parseFloat(ab.amount),
+                dayOfMonth: ab.dayOfMonth,
+                frequency: ab.frequency || 'monthly',
+                nextDue: ab.nextDue,
+                occurrences: ab.occurrences,
+                isAutoDetected: true
+            });
+        }
+    });
+
+    // Sort by day of month (calendar order)
+    allBills.sort(function(a, b) { return a.dayOfMonth - b.dayOfMonth; });
+
+    if (allBills.length === 0) {
+        container.innerHTML = '<p style="opacity:0.5; text-align:center;">No recurring bills detected yet.<br><span style="font-size:0.8em;">Import a bank statement to auto-detect, or add manually.</span></p>' +
             '<button class="btn btn-primary" onclick="openAddBillModal()" style="margin:16px auto; display:block;">+ Add Bill</button>';
         return;
     }
 
     // Calculate totals
-    var monthlyTotal = billsWithDates.reduce(function(sum, bill) {
-        return sum + bill.amount;
-    }, 0);
+    var monthlyTotal = allBills.reduce(function(sum, b) { return sum + b.amount; }, 0);
+    var annualTotal = monthlyTotal * 12;
 
-    var upcoming = billsWithDates.filter(function(bill) {
-        return bill.nextDue >= today && bill.nextDue <= cycle.end;
+    var upcoming = allBills.filter(function(b) {
+        return b.nextDue >= today && b.nextDue <= cycle.end;
     });
 
     var html = '';
 
-    // Summary header with Add Bill button
+    // ---- Summary header ----
     html += '<div style="display:flex; gap:8px; margin-bottom:16px; align-items:stretch;">';
     html += '  <div style="flex:1; text-align:center; padding:12px; background:rgba(168,85,247,0.15); border-radius:8px;">';
-    html += '    <div style="font-size:0.7em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Monthly Recurring</div>';
-    html += '    <div style="font-size:1.4em; font-weight:bold;">£' + monthlyTotal.toFixed(2) + '</div>';
+    html += '    <div style="font-size:0.65em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Monthly</div>';
+    html += '    <div style="font-size:1.3em; font-weight:bold; font-family:\'JetBrains Mono\',monospace;">£' + monthlyTotal.toFixed(2) + '</div>';
     html += '  </div>';
     html += '  <div style="flex:1; text-align:center; padding:12px; background:rgba(168,85,247,0.15); border-radius:8px;">';
-    html += '    <div style="font-size:0.7em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Coming This Cycle</div>';
-    html += '    <div style="font-size:1.4em; font-weight:bold;">' + upcoming.length + ' payment' + (upcoming.length !== 1 ? 's' : '') + '</div>';
+    html += '    <div style="font-size:0.65em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Annual</div>';
+    html += '    <div style="font-size:1.3em; font-weight:bold; font-family:\'JetBrains Mono\',monospace;">£' + annualTotal.toFixed(2) + '</div>';
     html += '  </div>';
-    html += '  <button class="btn btn-primary" onclick="openAddBillModal()" style="padding:12px 20px; white-space:nowrap;">+ Add Bill</button>';
+    html += '  <button class="btn btn-primary" onclick="openAddBillModal()" style="padding:12px 16px; white-space:nowrap; font-size:0.8em;">+ Add</button>';
     html += '</div>';
 
-    // Upcoming this cycle
+    // ---- Upcoming this cycle ----
     if (upcoming.length > 0) {
-        html += '<div style="font-size:0.75em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">⏰ Due This Cycle</div>';
+        var upcomingTotal = upcoming.reduce(function(sum, b) { return sum + b.amount; }, 0);
+        html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">';
+        html += '  <div style="font-size:0.75em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px;">Due This Cycle</div>';
+        html += '  <div style="font-size:0.75em; opacity:0.5; font-family:\'JetBrains Mono\',monospace;">£' + upcomingTotal.toFixed(2) + '</div>';
+        html += '</div>';
 
         upcoming.forEach(function(bill) {
             var daysUntil = Math.ceil((bill.nextDue - today) / (1000 * 60 * 60 * 24));
             var dateStr = bill.nextDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
             var color = CAT_COLORS[bill.category] || '#64748b';
 
-            var urgencyColor, urgencyLabel;
-            if (daysUntil === 0) {
-                urgencyColor = '#ef4444';
-                urgencyLabel = 'TODAY';
-            } else if (daysUntil === 1) {
-                urgencyColor = '#f97316';
-                urgencyLabel = 'TOMORROW';
-            } else if (daysUntil <= 3) {
-                urgencyColor = '#f59e0b';
-                urgencyLabel = daysUntil + ' days';
-            } else {
-                urgencyColor = '#22c55e';
-                urgencyLabel = daysUntil + ' days';
-            }
+            var urgencyColor;
+            if (daysUntil === 0) urgencyColor = '#ef4444';
+            else if (daysUntil <= 2) urgencyColor = '#f97316';
+            else if (daysUntil <= 5) urgencyColor = '#f59e0b';
+            else urgencyColor = '#22c55e';
 
-            html += '<div style="display:flex; align-items:center; padding:12px; margin-bottom:6px; background:rgba(255,255,255,0.03); border-radius:8px; border-left:3px solid ' + urgencyColor + ';">';
-            html += '  <div style="min-width:70px; text-align:center; margin-right:12px;">';
-            html += '    <div style="font-size:0.7em; color:' + urgencyColor + '; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">' + urgencyLabel + '</div>';
-            html += '    <div style="font-size:0.75em; opacity:0.5;">' + dateStr + '</div>';
+            var urgencyLabel = daysUntil === 0 ? 'TODAY' : daysUntil === 1 ? 'TMRW' : daysUntil + 'd';
+
+            html += '<div style="display:flex; align-items:center; padding:10px 12px; margin-bottom:4px; background:rgba(255,255,255,0.03); border-radius:8px; border-left:3px solid ' + urgencyColor + ';">';
+            html += '  <div style="min-width:40px; text-align:center; margin-right:10px;">';
+            html += '    <div style="font-size:0.65em; color:' + urgencyColor + '; font-weight:700; letter-spacing:0.3px;">' + urgencyLabel + '</div>';
+            html += '    <div style="font-size:0.65em; opacity:0.4;">' + dateStr + '</div>';
             html += '  </div>';
             html += '  <div style="flex:1; min-width:0;">';
-            html += '    <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(bill.name) + '</div>';
-            html += '    <div style="font-size:0.75em; opacity:0.5;"><span style="color:' + color + ';">' + bill.category + '</span> · monthly</div>';
+            html += '    <div style="font-weight:600; font-size:0.9em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(bill.name) + '</div>';
+            html += '    <div style="font-size:0.7em; opacity:0.5;"><span style="color:' + color + ';">' + bill.category + '</span></div>';
             html += '  </div>';
-            html += '  <div style="font-weight:bold; font-size:1.1em; margin-left:8px;">£' + bill.amount.toFixed(2) + '</div>';
-            html += '  <button class="tx-btn tx-delete" onclick="deleteRecurringBill(' + bill.id + ')" title="Delete" style="opacity:0.5; margin-left:8px;">🗑️</button>';
+            html += '  <div style="font-weight:bold; font-size:0.95em; font-family:\'JetBrains Mono\',monospace; margin-left:8px;">£' + bill.amount.toFixed(2) + '</div>';
             html += '</div>';
         });
 
-        var upcomingTotal = upcoming.reduce(function(sum, bill) {
-            return sum + bill.amount;
-        }, 0);
-        html += '<div style="text-align:right; font-size:0.8em; opacity:0.6; margin-top:4px; margin-bottom:20px;">Total upcoming: <strong>£' + upcomingTotal.toFixed(2) + '</strong></div>';
+        html += '<div style="height:16px;"></div>';
     }
 
-    // All bills
-    html += '<div style="font-size:0.75em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; margin-top:16px;">📋 All Monthly Bills</div>';
+    // ---- All bills (calendar order) ----
+    html += '<div style="font-size:0.75em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">All Bills · by date</div>';
 
-    billsWithDates.forEach(function(bill) {
-        var dateStr = bill.nextDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    allBills.forEach(function(bill) {
         var color = CAT_COLORS[bill.category] || '#64748b';
         var dayLabel = getOrdinal(bill.dayOfMonth);
+        var deleteBtn = '';
+        if (bill.isManual) {
+            deleteBtn = '<button class="tx-btn tx-delete" onclick="deleteRecurringBill(' + bill.id + ')" title="Delete" style="opacity:0.4; font-size:0.85em;">🗑️</button>';
+        }
+        var autoTag = bill.isAutoDetected ? '<span style="font-size:0.6em; opacity:0.35; margin-left:4px;">auto</span>' : '';
 
-        html += '<div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.04);">';
+        html += '<div style="display:flex; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.04);">';
+        html += '  <div style="min-width:36px; font-size:0.8em; font-weight:600; opacity:0.5; font-family:\'JetBrains Mono\',monospace;">' + dayLabel + '</div>';
         html += '  <div style="flex:1; min-width:0;">';
-        html += '    <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(bill.name) + '</div>';
-        html += '    <div style="font-size:0.7em; opacity:0.5;">';
-        html += '      <span style="color:' + color + ';">' + bill.category + '</span>';
-        html += '      · monthly · usually the ' + dayLabel;
-        html += '    </div>';
+        html += '    <div style="font-weight:500; font-size:0.88em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(bill.name) + autoTag + '</div>';
+        html += '    <div style="font-size:0.65em; color:' + color + '; opacity:0.7;">' + bill.category + '</div>';
         html += '  </div>';
-        html += '  <div style="text-align:right; margin-left:12px; display:flex; align-items:center; gap:12px;">';
+        html += '  <div style="text-align:right; margin-left:8px; display:flex; align-items:center; gap:8px;">';
         html += '    <div>';
-        html += '      <div style="font-weight:bold; font-size:0.95em;">£' + bill.amount.toFixed(2) + '</div>';
-        html += '      <div style="font-size:0.65em; opacity:0.4;">£' + (bill.amount * 12).toFixed(2) + '/yr</div>';
+        html += '      <div style="font-weight:bold; font-size:0.88em; font-family:\'JetBrains Mono\',monospace;">£' + bill.amount.toFixed(2) + '</div>';
+        html += '      <div style="font-size:0.6em; opacity:0.35;">£' + (bill.amount * 12).toFixed(0) + '/yr</div>';
         html += '    </div>';
-        html += '    <button class="tx-btn tx-delete" onclick="deleteRecurringBill(' + bill.id + ')" title="Delete" style="opacity:0.5;">🗑️</button>';
+        html += deleteBtn;
         html += '  </div>';
         html += '</div>';
     });
@@ -1009,7 +1080,8 @@ function importCsv() {
     saveState(); renderAll(); populateFilterCategories();
     document.getElementById('csvModal').classList.remove('active');
     csvData = null;
-    alert('🚀 Imported ' + added + ' transactions!\n🔄 ' + hidden + ' hidden.');
+    var detectedBills = detectRecurringPayments(state.transactions);
+    alert('🚀 Imported ' + added + ' transactions!\n🔄 ' + hidden + ' hidden.\n🔁 ' + detectedBills.length + ' recurring payments detected.');
 
     checkSpendingAndNotify();
 }
@@ -1115,7 +1187,12 @@ function renderCycleBanner() {
     document.getElementById('cycleDates').textContent = fmt(cycle.start) + ' → ' + fmt(cycle.end);
     var cdEl = document.getElementById('cycleCountdown');
     if (offset === 0) {
-        cdEl.textContent = cycle.daysLeft === 0 ? '🎉 Payday today!' : cycle.daysLeft + ' days until payday';
+        if (cycle.daysIntoCycle === 1) {
+            cdEl.textContent = '🎉 Payday today!';
+        } else {
+            var daysUntilPay = cycle.daysLeft + 1;
+            cdEl.textContent = daysUntilPay + ' day' + (daysUntilPay !== 1 ? 's' : '') + ' until payday';
+        }
     } else { cdEl.textContent = '📅 Past Cycle'; }
 
     document.getElementById('qsIncome').textContent = '£' + income.toFixed(2);
