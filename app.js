@@ -13,7 +13,7 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// ===== MISSION CONTROL v15.0 (Direct Debit Edition) — app.js =====
+// ===== MISSION CONTROL v16.0 (Improved Detection) — app.js =====
 
 var HIDDEN_TAGS = ['🔄 Internal Transfer', '💰 Savings'];
 var AUTO_ESSENTIALS = ['🏠 Rent', '🏠 Bills', '🛒 Groceries', '🐾 Maya & Dobby', '💊 Health', '🚇 Transport', '📞 Phone'];
@@ -53,7 +53,7 @@ var notificationsEnabled = false;
 
 // ---------- INIT ----------
 function init() {
-    console.log("🚀 Mission Control v15.0 launching...");
+    console.log("🚀 Mission Control v16.0 launching...");
     loadState();
     bindEvents();
     try {
@@ -62,6 +62,18 @@ function init() {
         populateCategorySelect();
         populateFilterCategories();
         renderAll();
+
+        // Display current date in header
+        var dateDisplay = document.getElementById('currentDate');
+        if (dateDisplay) {
+            var now = new Date();
+            dateDisplay.textContent = now.toLocaleDateString('en-GB', { 
+                weekday: 'short', 
+                day: 'numeric', 
+                month: 'short', 
+                year: 'numeric' 
+            });
+        }
 
         // Set up desktop notifications
         setupNotifications();
@@ -130,7 +142,6 @@ function checkSpendingAndNotify() {
     if (!notificationsEnabled) return;
     if (!state.transactions || state.transactions.length === 0) return;
 
-    // Use existing cycle function — not a hardcoded date
     var cycle = getPayCycleDates(0);
     var progress = Math.min(cycle.daysIntoCycle / 28, 1);
 
@@ -171,28 +182,40 @@ function checkSpendingAndNotify() {
 }
 
 // ============================================
-// DIRECT DEBIT TRACKER
+// IMPROVED RECURRING PAYMENT DETECTION
 // ============================================
-// Scans all transactions to find payments that occur on the same
-// day of the month with consistent amounts. Groups them, figures out
-// when each one next hits, and shows a timeline within the current
-// pay cycle so you can plan ahead.
+// This function looks for payments that happen regularly with:
+// - Similar merchant names (fuzzy matching)
+// - Similar amounts (within £3 tolerance)
+// - Regular intervals (weekly, fortnightly, monthly)
+
+function normalizePayeeName(desc) {
+    // Strip out common noise from merchant names
+    return desc.toLowerCase()
+        .replace(/\d{2}\/\d{2}\/\d{4}/g, '')  // Remove dates
+        .replace(/\d{6,}/g, '')                 // Remove reference numbers (6+ digits)
+        .replace(/\b(payment|pymt|pd|paid|to|from|ref|transaction|txn)\b/gi, '') // Remove common words
+        .replace(/[^a-z0-9\s]/g, '')           // Remove special characters
+        .replace(/\s+/g, ' ')                   // Collapse whitespace
+        .trim()
+        .substring(0, 30);                      // Take first 30 chars for matching
+}
 
 function detectDirectDebits(transactions) {
     var expenses = transactions.filter(function(t) {
         return t.type === 'expense';
     });
 
-    // Group by cleaned description
+    // Group by normalized payee name
     var grouped = {};
     expenses.forEach(function(t) {
-        var key = t.desc.toLowerCase().trim()
-            // Remove common variable parts like dates and reference numbers
-            .replace(/\d{6,}/g, '')   // strip long number sequences (refs)
-            .replace(/\s+/g, ' ')     // collapse whitespace
-            .trim();
-        if (!grouped[key]) grouped[key] = [];
-        grouped[key].push({
+        var normalizedName = normalizePayeeName(t.desc);
+        
+        // Skip if name is too short to be meaningful
+        if (normalizedName.length < 3) return;
+        
+        if (!grouped[normalizedName]) grouped[normalizedName] = [];
+        grouped[normalizedName].push({
             date: new Date(t.date),
             dayOfMonth: new Date(t.date).getDate(),
             amount: Math.abs(parseFloat(t.amount)),
@@ -203,86 +226,90 @@ function detectDirectDebits(transactions) {
 
     var directDebits = [];
 
-    Object.keys(grouped).forEach(function(name) {
-        var entries = grouped[name];
+    Object.keys(grouped).forEach(function(normalizedName) {
+        var entries = grouped[normalizedName];
 
-        // Need at least 2 occurrences to identify a pattern
+        // Need at least 2 occurrences to spot a pattern
         if (entries.length < 2) return;
 
         // Sort oldest first
         entries.sort(function(a, b) { return a.date - b.date; });
 
-        // Check if amounts are consistent (within £2 tolerance)
+        // Calculate average amount
         var avgAmount = entries.reduce(function(sum, e) {
             return sum + e.amount;
         }, 0) / entries.length;
 
+        // Check if amounts are consistent (within £3 tolerance)
         var amountsConsistent = entries.every(function(e) {
-            return Math.abs(e.amount - avgAmount) < 2;
+            return Math.abs(e.amount - avgAmount) < 3;
         });
 
         if (!amountsConsistent) return;
 
-        // Check if they land on roughly the same day of the month
-        // Get the most common day-of-month
-        var dayCounts = {};
-        entries.forEach(function(e) {
-            // Allow +/- 2 days for weekends/bank holidays
-            // We "bucket" days: if a payment is on the 1st, 2nd, or 3rd
-            // of different months, they probably all target the 1st
-            var bucket = e.dayOfMonth;
-            dayCounts[bucket] = (dayCounts[bucket] || 0) + 1;
-        });
-
-        // Find the most frequent day
-        var mostFrequentDay = 0;
-        var maxCount = 0;
-        Object.keys(dayCounts).forEach(function(day) {
-            if (dayCounts[day] > maxCount) {
-                maxCount = dayCounts[day];
-                mostFrequentDay = parseInt(day);
-            }
-        });
-
-        // Check how many entries are within 3 days of the most common day
-        var nearMostFrequent = entries.filter(function(e) {
-            var diff = Math.abs(e.dayOfMonth - mostFrequentDay);
-            // Handle month boundary (e.g., 30th vs 2nd)
-            if (diff > 15) diff = 30 - diff;
-            return diff <= 3;
-        });
-
-        // If at least 60% of entries fall near the same day, it's a DD
-        var isDirectDebit = (nearMostFrequent.length / entries.length) >= 0.6;
-
-        if (!isDirectDebit) return;
-
-        // Check gap between payments is roughly monthly (25-35 days)
+        // Calculate gaps between consecutive payments
         var gaps = [];
         for (var i = 1; i < entries.length; i++) {
             var daysBetween = (entries[i].date - entries[i - 1].date) / (1000 * 60 * 60 * 24);
             gaps.push(daysBetween);
         }
+        
+        if (gaps.length === 0) return;
+        
         var avgGap = gaps.reduce(function(sum, g) { return sum + g; }, 0) / gaps.length;
 
-        // Accept monthly (25-35), fortnightly (12-16), or weekly (5-9)
+        // Determine frequency based on average gap
         var frequency = null;
-        if (avgGap >= 25 && avgGap <= 35) frequency = 'monthly';
-        else if (avgGap >= 12 && avgGap <= 16) frequency = 'fortnightly';
-        else if (avgGap >= 5 && avgGap <= 9) frequency = 'weekly';
+        if (avgGap >= 24 && avgGap <= 37) frequency = 'monthly';       // 28-31 days ±3
+        else if (avgGap >= 12 && avgGap <= 16) frequency = 'fortnightly'; // 14 days ±2
+        else if (avgGap >= 5 && avgGap <= 9) frequency = 'weekly';        // 7 days ±2
 
         if (!frequency) return;
 
-        // Calculate when the next payment is due
+        // Find the most common day-of-month for monthly payments
+        var mostFrequentDay = 1;
+        if (frequency === 'monthly') {
+            var dayCounts = {};
+            entries.forEach(function(e) {
+                var day = e.dayOfMonth;
+                dayCounts[day] = (dayCounts[day] || 0) + 1;
+            });
+
+            var maxCount = 0;
+            Object.keys(dayCounts).forEach(function(day) {
+                if (dayCounts[day] > maxCount) {
+                    maxCount = dayCounts[day];
+                    mostFrequentDay = parseInt(day);
+                }
+            });
+
+            // Verify that most payments fall within ±3 days of this day
+            var nearTarget = entries.filter(function(e) {
+                var diff = Math.abs(e.dayOfMonth - mostFrequentDay);
+                // Handle month wraparound (e.g., 30th vs 2nd)
+                if (diff > 15) diff = Math.abs(30 - diff);
+                return diff <= 3;
+            });
+
+            // If less than 60% of payments are near the target day, skip it
+            if (nearTarget.length / entries.length < 0.6) return;
+        } else {
+            // For weekly/fortnightly, just use the last payment's day
+            mostFrequentDay = entries[entries.length - 1].dayOfMonth;
+        }
+
+        // Calculate next payment date
         var lastPayment = entries[entries.length - 1];
         var nextDate = new Date(lastPayment.date);
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
 
+        // Advance to next occurrence
         if (frequency === 'monthly') {
             nextDate.setMonth(nextDate.getMonth() + 1);
-            // Handle month-end overflow (e.g., Jan 31 + 1 month = Mar 3)
-            // If the day shifted, go back to the last day of previous month
-            if (nextDate.getDate() !== lastPayment.dayOfMonth) {
-                nextDate.setDate(0); // Goes to last day of previous month
+            // Handle month-end dates (e.g., Jan 31 → Feb 28)
+            if (nextDate.getDate() !== lastPayment.dayOfMonth && lastPayment.dayOfMonth > 28) {
+                nextDate.setDate(0); // Last day of previous month
             }
         } else if (frequency === 'fortnightly') {
             nextDate.setDate(nextDate.getDate() + 14);
@@ -290,10 +317,8 @@ function detectDirectDebits(transactions) {
             nextDate.setDate(nextDate.getDate() + 7);
         }
 
-        // If next date is in the past, keep advancing until it's in the future
-        var today = new Date();
-        today.setHours(0, 0, 0, 0);
-        var safety = 0; // Prevent infinite loops
+        // If calculated date is in the past, advance until it's in the future
+        var safety = 0;
         while (nextDate < today && safety < 100) {
             if (frequency === 'monthly') {
                 nextDate.setMonth(nextDate.getMonth() + 1);
@@ -306,7 +331,7 @@ function detectDirectDebits(transactions) {
         }
 
         directDebits.push({
-            name: entries[0].originalDesc,
+            name: entries[0].originalDesc,  // Use the original merchant name
             category: entries[0].category,
             amount: avgAmount.toFixed(2),
             dayOfMonth: mostFrequentDay,
@@ -332,7 +357,7 @@ function renderDirectDebits() {
     var debits = detectDirectDebits(state.transactions);
 
     if (debits.length === 0) {
-        container.innerHTML = '<p style="opacity:0.5; text-align:center;">No recurring payments detected yet.<br><span style="font-size:0.8em;">Need at least 2 months of data to spot patterns.</span></p>';
+        container.innerHTML = '<p style="opacity:0.5; text-align:center;">No recurring payments detected yet.<br><span style="font-size:0.8em;">Need at least 2 matching transactions to spot patterns.</span></p>';
         return;
     }
 
@@ -356,19 +381,19 @@ function renderDirectDebits() {
 
     // Summary header
     html += '<div style="display:flex; gap:8px; margin-bottom:16px;">';
-    html += '  <div style="flex:1; text-align:center; padding:10px; background:rgba(168,85,247,0.15); border-radius:8px;">';
-    html += '    <div style="font-size:0.7em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px;">Monthly Direct Debits</div>';
-    html += '    <div style="font-size:1.3em; font-weight:bold; margin-top:2px;">~£' + monthlyTotal.toFixed(2) + '</div>';
+    html += '  <div style="flex:1; text-align:center; padding:12px; background:rgba(168,85,247,0.15); border-radius:8px;">';
+    html += '    <div style="font-size:0.7em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Monthly Recurring</div>';
+    html += '    <div style="font-size:1.4em; font-weight:bold;">~£' + monthlyTotal.toFixed(2) + '</div>';
     html += '  </div>';
-    html += '  <div style="flex:1; text-align:center; padding:10px; background:rgba(168,85,247,0.15); border-radius:8px;">';
-    html += '    <div style="font-size:0.7em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px;">Coming This Cycle</div>';
-    html += '    <div style="font-size:1.3em; font-weight:bold; margin-top:2px;">' + upcoming.length + ' payment' + (upcoming.length !== 1 ? 's' : '') + '</div>';
+    html += '  <div style="flex:1; text-align:center; padding:12px; background:rgba(168,85,247,0.15); border-radius:8px;">';
+    html += '    <div style="font-size:0.7em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Coming This Cycle</div>';
+    html += '    <div style="font-size:1.4em; font-weight:bold;">' + upcoming.length + ' payment' + (upcoming.length !== 1 ? 's' : '') + '</div>';
     html += '  </div>';
     html += '</div>';
 
     // Upcoming this cycle section
     if (upcoming.length > 0) {
-        html += '<div style="font-size:0.75em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">⏰ Coming Up This Cycle</div>';
+        html += '<div style="font-size:0.75em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">⏰ Due This Cycle</div>';
 
         upcoming.forEach(function(dd) {
             var daysUntil = Math.ceil((dd.nextDue - today) / (1000 * 60 * 60 * 24));
@@ -391,12 +416,12 @@ function renderDirectDebits() {
                 urgencyLabel = daysUntil + ' days';
             }
 
-            html += '<div style="display:flex; align-items:center; padding:10px; margin-bottom:6px; background:rgba(255,255,255,0.03); border-radius:8px; border-left:3px solid ' + urgencyColor + ';">';
+            html += '<div style="display:flex; align-items:center; padding:12px; margin-bottom:6px; background:rgba(255,255,255,0.03); border-radius:8px; border-left:3px solid ' + urgencyColor + ';">';
 
             // Left: countdown badge
-            html += '  <div style="min-width:60px; text-align:center; margin-right:12px;">';
-            html += '    <div style="font-size:0.65em; color:' + urgencyColor + '; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">' + urgencyLabel + '</div>';
-            html += '    <div style="font-size:0.7em; opacity:0.5;">' + dateStr + '</div>';
+            html += '  <div style="min-width:70px; text-align:center; margin-right:12px;">';
+            html += '    <div style="font-size:0.7em; color:' + urgencyColor + '; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">' + urgencyLabel + '</div>';
+            html += '    <div style="font-size:0.75em; opacity:0.5;">' + dateStr + '</div>';
             html += '  </div>';
 
             // Middle: details
@@ -406,7 +431,7 @@ function renderDirectDebits() {
             html += '  </div>';
 
             // Right: amount
-            html += '  <div style="font-weight:bold; font-size:1.05em; margin-left:8px;">£' + dd.amount + '</div>';
+            html += '  <div style="font-weight:bold; font-size:1.1em; margin-left:8px;">£' + dd.amount + '</div>';
             html += '</div>';
         });
 
@@ -414,28 +439,31 @@ function renderDirectDebits() {
         var upcomingTotal = upcoming.reduce(function(sum, dd) {
             return sum + parseFloat(dd.amount);
         }, 0);
-        html += '<div style="text-align:right; font-size:0.8em; opacity:0.6; margin-top:4px; margin-bottom:16px;">Total upcoming: <strong>£' + upcomingTotal.toFixed(2) + '</strong></div>';
+        html += '<div style="text-align:right; font-size:0.8em; opacity:0.6; margin-top:4px; margin-bottom:20px;">Total upcoming: <strong>£' + upcomingTotal.toFixed(2) + '</strong></div>';
     }
 
     // All direct debits section
-    html += '<div style="font-size:0.75em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">📋 All Detected Direct Debits</div>';
+    html += '<div style="font-size:0.75em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; margin-top:16px;">📋 All Detected Patterns</div>';
 
     debits.forEach(function(dd) {
         var dateStr = dd.nextDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
         var color = CAT_COLORS[dd.category] || '#64748b';
         var dayLabel = getOrdinal(dd.dayOfMonth);
 
-        html += '<div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.04);">';
+        html += '<div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.04);">';
         html += '  <div style="flex:1; min-width:0;">';
         html += '    <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(dd.name) + '</div>';
         html += '    <div style="font-size:0.7em; opacity:0.5;">';
         html += '      <span style="color:' + color + ';">' + dd.category + '</span>';
-        html += '      · ' + dd.frequency + ' · usually the ' + dayLabel;
+        html += '      · ' + dd.frequency;
+        if (dd.frequency === 'monthly') {
+            html += ' · usually the ' + dayLabel;
+        }
         html += '      · ' + dd.occurrences + ' payments tracked';
         html += '    </div>';
         html += '  </div>';
-        html += '  <div style="text-align:right; margin-left:8px;">';
-        html += '    <div style="font-weight:bold;">£' + dd.amount + '</div>';
+        html += '  <div style="text-align:right; margin-left:12px;">';
+        html += '    <div style="font-weight:bold; font-size:0.95em;">£' + dd.amount + '</div>';
         html += '    <div style="font-size:0.65em; opacity:0.4;">£' + dd.annualCost + '/yr</div>';
         html += '  </div>';
         html += '</div>';
@@ -514,31 +542,31 @@ function renderHeatmap() {
         return parseFloat(current.total) > parseFloat(worst.total) ? current : worst;
     });
 
-    var html = '<div style="display:flex; justify-content:space-between; gap:4px; margin-bottom:12px;">';
+    var html = '<div style="display:flex; justify-content:space-between; gap:6px; margin-bottom:14px;">';
 
     data.forEach(function(d) {
-        var alpha = 0.1 + (d.intensity * 0.9);
+        var alpha = 0.15 + (d.intensity * 0.85);
         var borderStyle = d.day === worstDay.day && worstDay.count > 0
-            ? 'border: 1px solid rgba(168, 85, 247, 0.8);'
-            : 'border: 1px solid transparent;';
+            ? 'border: 2px solid rgba(168, 85, 247, 0.9);'
+            : 'border: 1px solid rgba(255,255,255,0.05);';
 
         html += '<div style="flex:1; text-align:center;">';
         html += '  <div style="background:rgba(168, 85, 247, ' + alpha + '); ' +
-            'border-radius:8px; padding:10px 2px; margin-bottom:4px; ' +
+            'border-radius:10px; padding:12px 4px; margin-bottom:6px; ' +
             borderStyle + '">';
-        html += '    <div style="font-size:1em; font-weight:bold;">£' + d.total + '</div>';
-        html += '    <div style="font-size:0.7em; opacity:0.7;">' + d.count + ' txns</div>';
-        html += '    <div style="font-size:0.65em; opacity:0.5;">avg £' + d.avg + '</div>';
+        html += '    <div style="font-size:1.1em; font-weight:bold;">£' + d.total + '</div>';
+        html += '    <div style="font-size:0.7em; opacity:0.7; margin-top:2px;">' + d.count + ' txns</div>';
+        html += '    <div style="font-size:0.65em; opacity:0.5; margin-top:1px;">avg £' + d.avg + '</div>';
         html += '  </div>';
-        html += '  <div style="font-size:0.8em; opacity:0.8;">' + d.day + '</div>';
+        html += '  <div style="font-size:0.85em; opacity:0.8; font-weight:500;">' + d.day + '</div>';
         html += '</div>';
     });
 
     html += '</div>';
 
     if (worstDay.count > 0) {
-        html += '<div style="text-align:center; font-size:0.85em; opacity:0.7; margin-top:8px;">';
-        html += '💸 You haemorrhage the most cash on <strong>' + worstDay.day + 's</strong>';
+        html += '<div style="text-align:center; font-size:0.85em; opacity:0.7; margin-top:12px; padding:10px; background:rgba(168,85,247,0.1); border-radius:8px;">';
+        html += '💸 You bleed the most cash on <strong>' + worstDay.day + 's</strong>';
         html += ' — £' + worstDay.total + ' total';
         html += '</div>';
     }
@@ -628,22 +656,22 @@ function renderProjection() {
 
     var html = '';
 
-    html += '<div style="display:flex; justify-content:space-between; margin-bottom:16px; font-size:0.85em;">';
-    html += '  <div>🔥 Burn rate: <strong>£' + result.dailyRate + '/day</strong></div>';
-    html += '  <div>';
+    html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; padding:12px; background:rgba(255,255,255,0.03); border-radius:8px;">';
+    html += '  <div style="font-size:0.85em;"><span style="opacity:0.6;">Burn rate:</span> <strong>£' + result.dailyRate + '/day</strong></div>';
+    html += '  <div style="font-size:0.85em;">';
     if (result.brokeDay) {
-        html += '💀 Broke in: <strong style="color:#ef4444;">' + result.daysUntilBroke + '</strong>';
+        html += '<span style="opacity:0.6;">Broke in:</span> <strong style="color:#ef4444;">' + result.daysUntilBroke + '</strong>';
     } else {
-        html += '🎉 <strong style="color:#22c55e;">You make it to payday!</strong>';
+        html += '<strong style="color:#22c55e;">You make it to payday! 🎉</strong>';
     }
     html += '  </div>';
     html += '</div>';
 
-    html += '<div style="display:flex; flex-direction:column; gap:2px;">';
+    html += '<div style="display:flex; flex-direction:column; gap:3px;">';
 
     var maxBalance = parseFloat(result.projection[0].balance);
 
-    result.projection.forEach(function(day) {
+    result.projection.forEach(function(day, idx) {
         var barWidth = maxBalance > 0 ? (parseFloat(day.balance) / maxBalance) * 100 : 0;
 
         var colour;
@@ -651,130 +679,19 @@ function renderProjection() {
         else if (barWidth < 50) colour = 'rgba(234, 179, 8, 0.7)';
         else colour = 'rgba(168, 85, 247, 0.7)';
 
+        // Only show every other day after day 7 to reduce clutter
+        if (idx > 7 && idx % 2 === 1) return;
+
         html += '<div style="display:flex; align-items:center; gap:8px; font-size:0.75em;">';
-        html += '  <div style="width:50px; opacity:0.6; text-align:right;">' + day.dayLabel + '</div>';
-        html += '  <div style="flex:1; background:rgba(255,255,255,0.05); border-radius:4px; height:16px; overflow:hidden;">';
+        html += '  <div style="width:55px; opacity:0.6; text-align:right; font-size:0.9em;">' + day.dayLabel + '</div>';
+        html += '  <div style="flex:1; background:rgba(255,255,255,0.05); border-radius:4px; height:18px; overflow:hidden;">';
         html += '    <div style="width:' + barWidth + '%; height:100%; background:' + colour + '; border-radius:4px; transition: width 0.3s;"></div>';
         html += '  </div>';
-        html += '  <div style="width:55px; font-size:0.9em;">£' + day.balance + '</div>';
+        html += '  <div style="width:60px; font-size:0.95em; font-weight:500;">£' + day.balance + '</div>';
         html += '</div>';
     });
 
     html += '</div>';
-    container.innerHTML = html;
-}
-
-// ============================================
-// SUBSCRIPTION DETECTOR
-// ============================================
-
-function findRecurring(transactions) {
-    var expenses = transactions.filter(function(t) {
-        return t.type === 'expense' && !isHidden(t);
-    });
-
-    var grouped = {};
-    expenses.forEach(function(t) {
-        var key = t.desc.toLowerCase().trim();
-        if (!grouped[key]) grouped[key] = [];
-        grouped[key].push({
-            date: new Date(t.date),
-            amount: Math.abs(parseFloat(t.amount)),
-            originalDesc: t.desc
-        });
-    });
-
-    var recurring = [];
-
-    Object.keys(grouped).forEach(function(name) {
-        var entries = grouped[name];
-        if (entries.length < 2) return;
-
-        entries.sort(function(a, b) { return a.date - b.date; });
-
-        var gaps = [];
-        for (var i = 1; i < entries.length; i++) {
-            var daysBetween = (entries[i].date - entries[i - 1].date) / (1000 * 60 * 60 * 24);
-            gaps.push(daysBetween);
-        }
-
-        var avgGap = gaps.reduce(function(sum, g) { return sum + g; }, 0) / gaps.length;
-
-        var avgAmount = entries.reduce(function(sum, e) {
-            return sum + e.amount;
-        }, 0) / entries.length;
-
-        var amountsConsistent = entries.every(function(e) {
-            return Math.abs(e.amount - avgAmount) < 2;
-        });
-
-        var frequency = null;
-        if (avgGap >= 25 && avgGap <= 35 && amountsConsistent) frequency = 'monthly';
-        else if (avgGap >= 12 && avgGap <= 16 && amountsConsistent) frequency = 'fortnightly';
-        else if (avgGap >= 5 && avgGap <= 9 && amountsConsistent) frequency = 'weekly';
-
-        if (frequency) {
-            recurring.push({
-                name: entries[0].originalDesc,
-                amount: avgAmount.toFixed(2),
-                frequency: frequency,
-                occurrences: entries.length,
-                totalSpent: (avgAmount * entries.length).toFixed(2),
-                annualCost: (avgAmount * (frequency === 'monthly' ? 12 :
-                    frequency === 'fortnightly' ? 26 : 52)).toFixed(2)
-            });
-        }
-    });
-
-    recurring.sort(function(a, b) {
-        return parseFloat(b.annualCost) - parseFloat(a.annualCost);
-    });
-
-    return recurring;
-}
-
-function renderRecurring() {
-    var container = document.getElementById('recurring-content');
-    if (!container) return;
-
-    var subs = findRecurring(state.transactions);
-
-    if (subs.length === 0) {
-        container.innerHTML = '<p style="opacity:0.5; text-align:center;">No recurring payments detected yet.<br><span style="font-size:0.8em;">Need at least 2 matching transactions to spot patterns.</span></p>';
-        return;
-    }
-
-    var monthlyTotal = subs.reduce(function(sum, s) {
-        var monthly;
-        if (s.frequency === 'monthly') monthly = parseFloat(s.amount);
-        else if (s.frequency === 'fortnightly') monthly = parseFloat(s.amount) * 2.17;
-        else monthly = parseFloat(s.amount) * 4.33;
-        return sum + monthly;
-    }, 0);
-
-    var html = '';
-
-    html += '<div style="text-align:center; margin-bottom:12px; padding:8px; background:rgba(168,85,247,0.15); border-radius:8px;">';
-    html += '  <div style="font-size:0.8em; opacity:0.7;">Detected Recurring Payments</div>';
-    html += '  <div style="font-size:1.4em; font-weight:bold;">~£' + monthlyTotal.toFixed(2) + '/month</div>';
-    html += '</div>';
-
-    subs.forEach(function(s) {
-        var freqEmoji = s.frequency === 'monthly' ? '📅' :
-            s.frequency === 'fortnightly' ? '📆' : '🗓️';
-
-        html += '<div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05);">';
-        html += '  <div>';
-        html += '    <div style="font-weight:600;">' + escapeHtml(s.name) + '</div>';
-        html += '    <div style="font-size:0.75em; opacity:0.5;">' + freqEmoji + ' ' + s.frequency + ' · ' + s.occurrences + ' payments found</div>';
-        html += '  </div>';
-        html += '  <div style="text-align:right;">';
-        html += '    <div style="font-weight:bold;">£' + s.amount + '</div>';
-        html += '    <div style="font-size:0.7em; opacity:0.5;">£' + s.annualCost + '/yr</div>';
-        html += '  </div>';
-        html += '</div>';
-    });
-
     container.innerHTML = html;
 }
 
@@ -1052,7 +969,6 @@ function importCsv() {
     csvData = null;
     alert('🚀 Imported ' + added + ' transactions!\n🔄 ' + hidden + ' hidden.');
 
-    // Check spending right after import
     checkSpendingAndNotify();
 }
 
@@ -1066,11 +982,9 @@ function renderAll() {
         renderTransactions();
         renderCategoryBars();
         renderAffordContext();
-        renderTopSpends();
         renderSurvivalPanel();
         renderHeatmap();
         renderProjection();
-        renderRecurring();
         renderDirectDebits();
     } catch (e) { console.error("Render error:", e); }
 }
@@ -1283,23 +1197,6 @@ function renderCategoryBars() {
         var ofTotal = ((amount / totalSpent) * 100).toFixed(0);
         var color = CAT_COLORS[cat] || '#64748b';
         html += '<div class="cat-bar-item"><div class="cat-bar-header"><span class="cat-bar-name">' + cat + '</span><span class="cat-bar-amount">£' + amount.toFixed(2) + ' (' + ofTotal + '%)</span></div><div class="cat-bar-track"><div class="cat-bar-fill" style="width: ' + percent + '%; background: ' + color + ';"></div></div></div>';
-    });
-    container.innerHTML = html;
-}
-
-// ---------- TOP SPENDS ----------
-function renderTopSpends() {
-    var container = document.getElementById('topSpendsList');
-    if (!container) return;
-    var offset = getActiveOffset();
-    var txs = state.transactions.filter(function(tx) {
-        return !isHidden(tx) && tx.type === 'expense' && isInCycle(tx.date, offset);
-    }).sort(function(a, b) { return b.amount - a.amount; }).slice(0, 5);
-    if (txs.length === 0) { container.innerHTML = '<div class="empty-state-small">No expenses yet</div>'; return; }
-    var html = '';
-    txs.forEach(function(tx, i) {
-        var rank = i === 0 ? 'gold' : i === 1 ? 'silver' : 'bronze';
-        html += '<div class="top-spend-item"><span class="top-spend-rank ' + rank + '">' + (i + 1) + '</span><div class="top-spend-details"><div class="top-spend-desc">' + escapeHtml(tx.desc) + '</div><div class="top-spend-cat">' + tx.category + '</div></div><span class="top-spend-amount">£' + tx.amount.toFixed(2) + '</span></div>';
     });
     container.innerHTML = html;
 }

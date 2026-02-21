@@ -8,14 +8,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-<!-- PWA Setup -->
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#8b5cf6">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Mission Control">
-<link rel="apple-touch-icon" href="icon-192.png">
-
+    <!-- PWA Setup -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#8b5cf6">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Mission Control">
+    <link rel="apple-touch-icon" href="icon-192.png">
 </head>
 <body>
     <div class="app">
@@ -95,6 +94,7 @@
         </section>
 
         <section class="main-grid">
+            <!-- LEFT COLUMN: Transactions -->
             <div class="panel transactions-panel">
                 <div class="panel-header">
                     <h2>📋 Transactions</h2>
@@ -111,14 +111,13 @@
                     <select id="filterCategory" class="filter-select">
                         <option value="all">All Categories</option>
                     </select>
-                                     <select id="filterType" class="filter-select">
+                    <select id="filterType" class="filter-select">
                         <option value="all">All Types</option>
                         <option value="income">Income</option>
                         <option value="expense">Expense</option>
                         <option value="essential">🛡️ Essential Only</option>
                         <option value="nonessential">Non-Essential Only</option>
                     </select>
-
                     <select id="filterPeriod" class="filter-select">
                         <option value="cycle_0">This Pay Cycle</option>
                         <option value="cycle_-1">Last Pay Cycle</option>
@@ -141,8 +140,9 @@
                 </div>
             </div>
 
+            <!-- RIGHT COLUMN: Analysis Panels -->
             <div class="right-column">
-                <!-- Spending Breakdown -->
+                <!-- Category Breakdown -->
                 <div class="panel chart-panel">
                     <div class="panel-header">
                         <h2>🍩 Breakdown</h2>
@@ -153,47 +153,45 @@
                     </div>
                 </div>
 
-            <!-- ===== DIRECT DEBIT TRACKER ===== -->
-            <div class="panel">
-                <h2>🏦 Direct Debits & Recurring</h2>
-                <div id="directdebit-content">
-                    <p style="opacity:0.5; text-align:center;">Import transactions to detect direct debits</p>
+                <!-- Direct Debits & Recurring (MERGED) -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>🔁 Recurring Payments</h2>
+                        <span class="chart-period-label">Auto-detected patterns</span>
+                    </div>
+                    <div id="directdebit-content">
+                        <p style="opacity:0.5; text-align:center;">Import transactions to detect recurring payments</p>
+                    </div>
                 </div>
-            </div>
 
-            <!-- ===== SPENDING HEATMAP ===== -->
-            <div class="panel" id="heatmap-panel">
-                <h2>📅 Spending Heatmap</h2>
-                <div id="heatmap-content">
-                    <p style="opacity:0.5; text-align:center;">No spending data yet</p>
+                <!-- Spending Heatmap -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>📅 When You Bleed Cash</h2>
+                    </div>
+                    <div id="heatmap-content">
+                        <p style="opacity:0.5; text-align:center;">No spending data yet</p>
+                    </div>
                 </div>
-            </div>
-
-            <!-- ===== FUTURE PROJECTION ===== -->
-            <div class="panel" id="projection-panel">
-                <h2>🔮 Future You</h2>
-                <div id="projection-content">
-                    <p style="opacity:0.5; text-align:center;">Import transactions to see your projection</p>
-                </div>
-            </div>
-
-            <!-- ===== SUBSCRIPTIONS DETECTED ===== -->
-            <div class="panel" id="recurring-panel">
-                <h2>🔁 Subscriptions Detected</h2>
-                <div id="recurring-content">
-                    <p style="opacity:0.5; text-align:center;">Import transactions to detect subscriptions</p>
-                </div>
-            </div>
-
 
                 <!-- Survival Mode -->
                 <div class="panel survival-panel">
                     <div class="panel-header">
                         <h2>🧟 Survival Mode</h2>
-                        <span class="chart-period-label">Based on 🛡️ Essential tags</span>
+                        <span class="chart-period-label">Essentials vs Everything Else</span>
                     </div>
                     <div class="survival-stats" id="survivalStats">
-                        <div class="empty-state-small">Tag transactions with the shield to see survival costs</div>
+                        <div class="empty-state-small">Tag transactions with 🛡️ to see survival costs</div>
+                    </div>
+                </div>
+
+                <!-- Future Projection -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>🔮 Will You Survive?</h2>
+                    </div>
+                    <div id="projection-content">
+                        <p style="opacity:0.5; text-align:center;">Import transactions to see projection</p>
                     </div>
                 </div>
 
@@ -324,31 +322,5 @@
     </div>
 
     <script src="app.js"></script>
-<!-- ===== NEW PANELS - Add these after your existing panels ===== -->
-
-<!-- Spending Heatmap -->
-<div class="panel" id="heatmap-panel">
-    <h2>📅 Spending Heatmap</h2>
-    <div id="heatmap-content">
-        <p style="opacity:0.5; text-align:center;">No spending data yet</p>
-    </div>
-</div>
-
-<!-- Future Projection -->
-<div class="panel" id="projection-panel">
-    <h2>🔮 Future You</h2>
-    <div id="projection-content">
-        <p style="opacity:0.5; text-align:center;">Import transactions to see your projection</p>
-    </div>
-</div>
-
-<!-- Recurring Payments Detector -->
-<div class="panel" id="recurring-panel">
-    <h2>🔁 Subscriptions Detected</h2>
-    <div id="recurring-content">
-        <p style="opacity:0.5; text-align:center;">Import transactions to detect subscriptions</p>
-    </div>
-</div>
-
 </body>
 </html>
