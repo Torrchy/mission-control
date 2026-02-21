@@ -46,7 +46,17 @@ var ALL_CATEGORIES = [
 ];
 
 // ---------- STATE ----------
-var state = { transactions: [], budget: 1000, balance: 0, totalSavings: 0, nextId: 1, showHidden: false, recurringBills: [] };
+var state = { 
+    transactions: [], 
+    budget: 1000, 
+    balance: 0, 
+    totalSavings: 0, 
+    nextId: 1, 
+    showHidden: false, 
+    recurringBills: [],
+    creditCards: [],
+    availableBalance: 0
+};
 var editingTxId = null;
 var csvData = null;
 var notificationsEnabled = false;
@@ -96,7 +106,17 @@ function loadState() {
         var saved = localStorage.getItem('missionControl');
         if (saved) {
             var parsed = JSON.parse(saved);
-            state = { transactions: [], budget: 1000, balance: 0, totalSavings: 0, nextId: 1, showHidden: false };
+            state = { 
+                transactions: [], 
+                budget: 1000, 
+                balance: 0, 
+                totalSavings: 0, 
+                nextId: 1, 
+                showHidden: false, 
+                recurringBills: [],
+                creditCards: [],
+                availableBalance: 0
+            };
             for (var key in parsed) { state[key] = parsed[key]; }
             state.transactions.forEach(function(tx) {
                 if (tx.isEssential === undefined) {
@@ -112,6 +132,8 @@ function loadState() {
     if (bl) bl.value = state.balance || '';
     var sv = document.getElementById('totalSavings');
     if (sv) sv.value = state.totalSavings || '';
+    var av = document.getElementById('availableBalance');
+    if (av) av.value = state.availableBalance || '';
 }
 
 // ============================================
@@ -995,6 +1017,7 @@ function importCsv() {
 // ---------- RENDER ALL ----------
 function renderAll() {
     try {
+        renderAlertBanner();
         renderCycleBanner();
         renderInsights();
         renderBudgetProgress();
@@ -1006,10 +1029,74 @@ function renderAll() {
         renderHeatmap();
         renderProjection();
         renderDirectDebits();
+        renderCreditCards();
     } catch (e) { console.error("Render error:", e); }
 }
 
-// ---------- CYCLE BANNER ----------
+// ---------- ALERT BANNER ----------
+function renderAlertBanner() {
+    var container = document.getElementById('alertBanner');
+    if (!container) return;
+
+    var available = state.availableBalance || 0;
+    var cycle = getPayCycleDates(0);
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Get upcoming bills this cycle
+    var upcomingBills = state.recurringBills.map(function(bill) {
+        var nextDate = new Date(today);
+        nextDate.setDate(bill.dayOfMonth);
+        if (nextDate < today) {
+            nextDate.setMonth(nextDate.getMonth() + 1);
+        }
+        if (nextDate.getDate() !== bill.dayOfMonth) {
+            nextDate.setDate(0);
+        }
+        return {
+            amount: parseFloat(bill.amount),
+            nextDue: nextDate
+        };
+    }).filter(function(bill) {
+        return bill.nextDue >= today && bill.nextDue <= cycle.end;
+    });
+
+    var upcomingTotal = upcomingBills.reduce(function(sum, bill) {
+        return sum + bill.amount;
+    }, 0);
+
+    var afterBills = available - upcomingTotal;
+
+    var html = '';
+    
+    if (available === 0) {
+        html = '<div style="display:flex; align-items:center; gap:12px;">';
+        html += '  <span style="font-size:1.2rem;">💡</span>';
+        html += '  <span>Set your available balance in Settings to see what you have left after upcoming bills.</span>';
+        html += '</div>';
+    } else if (upcomingBills.length === 0) {
+        html = '<div style="display:flex; align-items:center; gap:12px;">';
+        html += '  <span style="font-size:1.2rem;">✨</span>';
+        html += '  <span>You have <strong>£' + available.toFixed(2) + '</strong> available · No bills due this cycle</span>';
+        html += '</div>';
+    } else {
+        var icon = afterBills < 0 ? '⚠️' : afterBills < available * 0.2 ? '🔸' : '✅';
+        var color = afterBills < 0 ? '#ef4444' : afterBills < available * 0.2 ? '#f59e0b' : '#22c55e';
+        
+        html = '<div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">';
+        html += '  <span style="font-size:1.2rem;">' + icon + '</span>';
+        html += '  <span>You have <strong>£' + available.toFixed(2) + '</strong> available</span>';
+        html += '  <span style="opacity:0.6;">·</span>';
+        html += '  <span><strong>' + upcomingBills.length + '</strong> bill' + (upcomingBills.length !== 1 ? 's' : '') + ' coming (£' + upcomingTotal.toFixed(2) + ')</span>';
+        html += '  <span style="opacity:0.6;">·</span>';
+        html += '  <span style="color:' + color + '; font-weight:600;">£' + afterBills.toFixed(2) + ' after bills</span>';
+        html += '</div>';
+    }
+
+    container.innerHTML = html;
+}
+
+// ---------- RENDER ALL ----------
 function renderCycleBanner() {
     var offset = getActiveOffset();
     var cycle = getPayCycleDates(offset);
@@ -1314,6 +1401,106 @@ function renderHiddenSummary() {
     }
 }
 
+// ---------- CREDIT CARD MANAGEMENT ----------
+function renderCreditCards() {
+    var container = document.getElementById('creditCards-content');
+    if (!container) return;
+
+    if (state.creditCards.length === 0) {
+        container.innerHTML = '<p style="opacity:0.5; text-align:center;">No credit cards added yet.<br><span style="font-size:0.8em;">Track what you owe across cards.</span></p>' +
+            '<button class="btn btn-primary" onclick="openAddCardModal()" style="margin:16px auto; display:block;">+ Add Card</button>';
+        return;
+    }
+
+    var totalOwed = state.creditCards.reduce(function(sum, card) {
+        return sum + parseFloat(card.balance);
+    }, 0);
+
+    var html = '';
+
+    // Header with total and add button
+    html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">';
+    html += '  <div style="text-align:center; padding:12px; background:rgba(239,68,68,0.15); border-radius:8px; flex:1;">';
+    html += '    <div style="font-size:0.7em; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Total Owed</div>';
+    html += '    <div style="font-size:1.4em; font-weight:bold; color:#ef4444;">£' + totalOwed.toFixed(2) + '</div>';
+    html += '  </div>';
+    html += '  <button class="btn btn-primary" onclick="openAddCardModal()" style="margin-left:12px;">+ Add Card</button>';
+    html += '</div>';
+
+    // Card list
+    state.creditCards.forEach(function(card) {
+        var barWidth = card.limit > 0 ? (card.balance / card.limit) * 100 : 0;
+        var color = barWidth > 90 ? '#ef4444' : barWidth > 70 ? '#f59e0b' : '#22c55e';
+
+        html += '<div style="padding:12px; background:rgba(255,255,255,0.03); border-radius:8px; margin-bottom:8px;">';
+        html += '  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">';
+        html += '    <div style="font-weight:600;">' + escapeHtml(card.name) + '</div>';
+        html += '    <div style="display:flex; align-items:center; gap:12px;">';
+        html += '      <div style="text-align:right;">';
+        html += '        <div style="font-weight:bold; color:#ef4444;">£' + card.balance.toFixed(2) + '</div>';
+        if (card.limit > 0) {
+            html += '        <div style="font-size:0.7em; opacity:0.5;">of £' + card.limit.toFixed(2) + '</div>';
+        }
+        html += '      </div>';
+        html += '      <button class="tx-btn tx-delete" onclick="deleteCreditCard(' + card.id + ')" title="Delete" style="opacity:0.5;">🗑️</button>';
+        html += '    </div>';
+        html += '  </div>';
+        
+        if (card.limit > 0) {
+            html += '  <div style="height:6px; background:rgba(255,255,255,0.1); border-radius:3px; overflow:hidden;">';
+            html += '    <div style="width:' + Math.min(barWidth, 100) + '%; height:100%; background:' + color + '; transition:width 0.3s;"></div>';
+            html += '  </div>';
+        }
+        
+        html += '</div>';
+    });
+
+    container.innerHTML = html;
+}
+
+function openAddCardModal() {
+    document.getElementById('addCardModal').classList.add('active');
+}
+
+function addCreditCard() {
+    var name = document.getElementById('cardName').value.trim();
+    var balance = parseFloat(document.getElementById('cardBalance').value) || 0;
+    var limit = parseFloat(document.getElementById('cardLimit').value) || 0;
+
+    if (!name) {
+        alert('Enter card name!');
+        return;
+    }
+
+    var nextId = 1;
+    if (state.creditCards.length > 0) {
+        nextId = Math.max.apply(null, state.creditCards.map(function(c) { return c.id; })) + 1;
+    }
+
+    state.creditCards.push({
+        id: nextId,
+        name: name,
+        balance: balance,
+        limit: limit
+    });
+
+    saveState();
+    renderCreditCards();
+    document.getElementById('addCardModal').classList.remove('active');
+    
+    // Clear form
+    document.getElementById('cardName').value = '';
+    document.getElementById('cardBalance').value = '';
+    document.getElementById('cardLimit').value = '';
+}
+
+function deleteCreditCard(id) {
+    if (!confirm('Delete this credit card?')) return;
+    state.creditCards = state.creditCards.filter(function(c) { return c.id !== id; });
+    saveState();
+    renderCreditCards();
+}
+
 // ---------- RECURRING BILLS MANAGEMENT ----------
 function openAddBillModal() {
     document.getElementById('addBillModal').classList.add('active');
@@ -1485,6 +1672,10 @@ function bindEvents() {
     safeBind('saveBudgetBtn', 'click', function() { state.budget = parseFloat(document.getElementById('monthlyBudget').value) || 1000; saveState(); renderAll(); });
     safeBind('saveBalanceBtn', 'click', function() { state.balance = parseFloat(document.getElementById('currentBalance').value) || 0; saveState(); renderAll(); });
     safeBind('saveSavingsBtn', 'click', function() { state.totalSavings = parseFloat(document.getElementById('totalSavings').value) || 0; saveState(); renderAll(); });
+    safeBind('saveAvailableBtn', 'click', function() { state.availableBalance = parseFloat(document.getElementById('availableBalance').value) || 0; saveState(); renderAll(); });
+    safeBind('closeCardModal', 'click', function() { document.getElementById('addCardModal').classList.remove('active'); });
+    safeBind('addCardModal', 'click', function(e) { if (e.target === e.currentTarget) e.currentTarget.classList.remove('active'); });
+    safeBind('saveCardBtn', 'click', addCreditCard);
     safeBind('affordCheckBtn', 'click', checkAfford);
     safeBind('affordAmount', 'keydown', function(e) { if (e.key === 'Enter') checkAfford(); });
     safeBind('clearAllBtn', 'click', function() { if (confirm('Delete ALL transactions?')) { state.transactions = []; state.nextId = 1; saveState(); renderAll(); populateFilterCategories(); } });

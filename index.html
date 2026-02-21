@@ -28,6 +28,14 @@
             </div>
         </header>
 
+        <!-- Alert Banner -->
+        <section class="alert-banner" id="alertBanner">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <span style="font-size:1.2rem;">💡</span>
+                <span>Loading...</span>
+            </div>
+        </section>
+
         <!-- Pay Cycle Banner -->
         <section class="cycle-banner">
             <div class="cycle-ring-container">
@@ -153,17 +161,6 @@
                     </div>
                 </div>
 
-                <!-- Direct Debits & Recurring (MERGED) -->
-                <div class="panel">
-                    <div class="panel-header">
-                        <h2>🔁 Recurring Payments</h2>
-                        <span class="chart-period-label">Auto-detected patterns</span>
-                    </div>
-                    <div id="directdebit-content">
-                        <p style="opacity:0.5; text-align:center;">Import transactions to detect recurring payments</p>
-                    </div>
-                </div>
-
                 <!-- Spending Heatmap -->
                 <div class="panel">
                     <div class="panel-header">
@@ -171,6 +168,27 @@
                     </div>
                     <div id="heatmap-content">
                         <p style="opacity:0.5; text-align:center;">No spending data yet</p>
+                    </div>
+                </div>
+
+                <!-- Direct Debits & Recurring (MERGED) -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>🔁 Recurring Payments</h2>
+                        <span class="chart-period-label">Monthly bills tracker</span>
+                    </div>
+                    <div id="directdebit-content">
+                        <p style="opacity:0.5; text-align:center;">Import transactions to detect recurring payments</p>
+                    </div>
+                </div>
+
+                <!-- Credit Cards -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>💳 Credit Cards</h2>
+                    </div>
+                    <div id="creditCards-content">
+                        <p style="opacity:0.5; text-align:center;">No credit cards tracked yet</p>
                     </div>
                 </div>
 
@@ -217,6 +235,14 @@
                         <h2>⚙️ Settings</h2>
                     </div>
                     <div class="settings-grid">
+                        <div class="setting-item">
+                            <label>Available Balance</label>
+                            <div class="setting-input-row">
+                                <span class="currency-prefix">£</span>
+                                <input type="number" id="availableBalance" class="setting-input" placeholder="0.00">
+                                <button class="btn btn-small" id="saveAvailableBtn">Save</button>
+                            </div>
+                        </div>
                         <div class="setting-item">
                             <label>Total Savings Pot</label>
                             <div class="setting-input-row">
@@ -359,6 +385,34 @@
                     </select>
                 </div>
                 <button class="btn btn-primary btn-full" id="saveBillBtn">💾 Save Bill</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Credit Card Modal -->
+    <div class="modal-overlay" id="addCardModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Add Credit Card</h3>
+                <button class="modal-close" id="closeCardModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-hint">Track what you owe on each card</p>
+                <div class="form-group">
+                    <label>Card Name</label>
+                    <input type="text" id="cardName" class="form-input" placeholder="e.g., Jaja Card">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Current Balance (£)</label>
+                        <input type="number" id="cardBalance" class="form-input" step="0.01" placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label>Credit Limit (£) - Optional</label>
+                        <input type="number" id="cardLimit" class="form-input" step="0.01" placeholder="0.00">
+                    </div>
+                </div>
+                <button class="btn btn-primary btn-full" id="saveCardBtn">💾 Save Card</button>
             </div>
         </div>
     </div>
