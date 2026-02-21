@@ -698,7 +698,7 @@ function renderProjection() {
 // ---------- PAY CYCLE ----------
 function getPayCycleDates(offset) {
     if (offset === undefined) offset = 0;
-    var anchorPay = new Date(2026, 1, 5);
+    var anchorPay = new Date(2026, 2, 5); // March 5th, 2026 (month is 0-indexed)
     var now = new Date();
     now.setHours(0, 0, 0, 0);
     var msPerCycle = 28 * 24 * 60 * 60 * 1000;
@@ -775,21 +775,27 @@ function autoCategory(description) {
     if (/202682 03442446.*optional/i.test(description)) return '🔄 Internal Transfer';
     if (/plum fintech/i.test(description)) return '🔄 Internal Transfer';
     if (d.indexOf('moneybox') !== -1) return '💰 Savings';
-    if (/plum\b.*ddr/i.test(description)) return '💰 Savings';
+    if (/plum\b.*ddr/i.test(description) && d.indexOf('fee') === -1) return '💰 Savings';
+    if (/plum\b.*fee/i.test(description)) return '🏦 Bank Fees';
     if (d.indexOf('my jaja card') !== -1) return '💳 Credit Card Payment';
     if (d.indexOf('capital one') !== -1) return '💳 Credit Card Payment';
+    if (d.indexOf('wescot') !== -1) return '💳 Credit Card Payment';
     if (d.indexOf('primark stores ltd') !== -1) return '💰 Salary';
     if (d.indexOf('trinity estates') !== -1) return '🏠 Rent';
     if (/basingstoke.*dean/i.test(description)) return '🏠 Bills';
+    if (d.indexOf('council tax') !== -1) return '🏠 Bills';
     if (d.indexOf('british gas') !== -1 || d.indexOf('bg services') !== -1) return '🏠 Bills';
     if (d.indexOf('ovo energy') !== -1) return '🏠 Bills';
     if (d.indexOf('south east water') !== -1) return '🏠 Bills';
     if (d.indexOf('tv licens') !== -1) return '🏠 Bills';
+    if (d.indexOf('sky digital') !== -1) return '📱 Subscriptions';
     if (d.indexOf('animal friends') !== -1) return '🐾 Maya & Dobby';
     if (d.indexOf('tails.com') !== -1) return '🐾 Maya & Dobby';
     if (d.indexOf('zooplus') !== -1) return '🐾 Maya & Dobby';
     if (d.indexOf('untamed') !== -1) return '🐾 Maya & Dobby';
     if (d.indexOf('anahi') !== -1) return '💊 Therapy';
+    if (d.indexOf('gll better') !== -1) return '💪 Gym & Fitness';
+    if (d.indexOf('unwfp') !== -1) return '❤️ Charity';
     if (d.indexOf('deliveroo') !== -1) return '🍕 Takeaway';
     if (d.indexOf('just eat') !== -1) return '🍕 Takeaway';
     if (d.indexOf('uber eats') !== -1) return '🍕 Takeaway';
@@ -808,7 +814,6 @@ function autoCategory(description) {
     if (d.indexOf('superdrug') !== -1) return '💄 Self Care';
     if (d.indexOf('boots') !== -1) return '💄 Self Care';
     if (d.indexOf('pharmacy') !== -1) return '💊 Health';
-    if (d.indexOf('gll better') !== -1) return '💪 Gym & Fitness';
     if (d.indexOf('trainline') !== -1) return '🚇 Transport';
     if (d.indexOf('stagecoach') !== -1) return '🚇 Transport';
     if (d.indexOf('tfl') !== -1) return '🚇 Transport';
@@ -817,7 +822,6 @@ function autoCategory(description) {
     if (d.indexOf('netflix') !== -1) return '📱 Subscriptions';
     if (d.indexOf('spotify') !== -1) return '📱 Subscriptions';
     if (d.indexOf('disney') !== -1) return '📱 Subscriptions';
-    if (d.indexOf('sky digital') !== -1) return '📱 Subscriptions';
     if (d.indexOf('apple.com') !== -1) return '📱 Subscriptions';
     if (d.indexOf('microsoft') !== -1) return '📱 Subscriptions';
     if (d.indexOf('google youtube') !== -1) return '📱 Subscriptions';
@@ -842,9 +846,7 @@ function autoCategory(description) {
     if (d.indexOf('co-op') !== -1) return '🛒 Groceries';
     if (/marks.spencer/i.test(description)) return '🛒 Groceries';
     if (d.indexOf('national lottery') !== -1) return '🎮 Entertainment';
-    if (d.indexOf('unwfp') !== -1) return '❤️ Charity';
     if (d.indexOf('blue rewards fee') !== -1) return '🏦 Bank Fees';
-    if (/plum\b.*fee/i.test(description)) return '🏦 Bank Fees';
     if (d.indexOf('dunelm') !== -1) return '🏠 Home & Kitchen';
     if (d.indexOf('robert dyas') !== -1) return '🏠 Home & Kitchen';
     if (d.indexOf('amazon') !== -1 || d.indexOf('amzn') !== -1) return '🛍️ Shopping';
@@ -853,6 +855,7 @@ function autoCategory(description) {
     if (/t ?k ?maxx/i.test(description)) return '🛍️ Shopping';
     if (d.indexOf('cotton on') !== -1) return '🛍️ Shopping';
     if (d.indexOf('paypal') !== -1) return '🛍️ Shopping';
+    if (d.indexOf('asos') !== -1) return '🛍️ Shopping';
     return '📦 Other';
 }
 
